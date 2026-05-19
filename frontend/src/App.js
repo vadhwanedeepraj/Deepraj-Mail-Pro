@@ -7,7 +7,7 @@ import "react-quill/dist/quill.snow.css";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 
 // ─── CONFIG ─────────────────────────────────────────────────────────────────
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "http://localhost:3001";
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || (window.location.hostname === 'localhost' ? 'http://localhost:3001' : '');
 
 // ─── UTILITIES ───────────────────────────────────────────────────────────────
 const validateEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(e).trim());
