@@ -222,16 +222,8 @@ const runCampaign = async (payload, sendEvent = () => {}) => {
   const { tenantId, email, password, cc, bcc, subject, bodyWith, bodyWithout, recipients, rateLimit, attachments, campaignId, backendHost } = payload;
   const parsedRecipients = JSON.parse(recipients || "[]");
   
-  const transporter = nodemailer.createTransport({
-    host: "smtp.gmail.com",
-    port: 587,
-    secure: false,
-    auth: { user: email, pass: password },
-    pool: true, maxConnections: 3,
-    connectionTimeout: 10000,
-    greetingTimeout: 10000,
-    socketTimeout: 10000,
-  });
+  // Bypassing Render SMTP block via Vercel proxy
+  const VERCEL_PROXY_URL = "https://email-proxy-one.vercel.app/api/send";
 
   const results = [];
   const campaign = {
@@ -278,17 +270,35 @@ const runCampaign = async (payload, sendEvent = () => {}) => {
     const unsubFooter = `<div style="margin-top:40px;padding-top:20px;border-top:1px solid #e5e7eb;font-size:12px;color:#9ca3af;text-align:center;"><p><a href="${unsubUrl}" style="color:#6b7280;text-decoration:underline;">Unsubscribe</a></p></div>`;
     const trackedHtml = `${renderedHtml}${unsubFooter}<img src="${pixelUrl}" width="1" height="1" style="display:none;" />`;
 
-    const mailOptions = {
-      from: email, to, cc: cc || undefined, bcc: bcc || undefined,
+    const payloadToProxy = {
+      email, password,
+      to, cc: cc || undefined, bcc: bcc || undefined,
       subject: renderTemplate(subject, templateVars),
       text: renderedHtml.replace(/<[^>]*>?/gm, '') + `\n\nTo unsubscribe, visit: ${unsubUrl}`,
       html: `<div style="font-family:sans-serif;line-height:1.6">${trackedHtml}</div>`,
-      attachments: attachPath ? [{ filename: `${id || name || "document"}.pdf`, path: attachPath, contentType: "application/pdf" }] : []
     };
+
+    if (attachPath) {
+      try {
+        const fileContent = fs.readFileSync(attachPath, { encoding: 'base64' });
+        payloadToProxy.attachments = [{
+          filename: `${id || name || "document"}.pdf`,
+          content: fileContent
+        }];
+      } catch(e) {}
+    }
 
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        await transporter.sendMail(mailOptions);
+        const response = await fetch(VERCEL_PROXY_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payloadToProxy)
+        });
+        
+        const json = await response.json();
+        if (!response.ok || !json.success) throw new Error(json.message || "Proxy relay failed");
+
         results.push({ to, status: "sent", attachStatus });
         sendEvent({ type: "progress", index: i, total: parsedRecipients.length, to, status: "sent" });
         break; // success — exit retry loop
@@ -393,27 +403,31 @@ app.post("/api/test-smtp", authenticateToken, async (req, res) => {
   const { email, password, testTo } = req.body;
   if (!email || !password) return res.status(400).json({ success: false, message: 'SMTP credentials required' });
   try {
-    const transporter = nodemailer.createTransport({ 
-      host: "smtp.gmail.com", 
-      port: 587, 
-      secure: false, 
-      auth: { user: email, pass: password },
-      connectionTimeout: 10000,
-      greetingTimeout: 10000,
-      socketTimeout: 10000,
+    const VERCEL_PROXY_URL = "https://email-proxy-one.vercel.app/api/send";
+    
+    const response = await fetch(VERCEL_PROXY_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password, verifyOnly: true })
     });
-    await transporter.verify();
+    
+    const json = await response.json();
+    if (!response.ok || !json.success) throw new Error(json.message || "Connection failed");
+
     // Send actual test email if testTo is provided
     if (testTo) {
-      await transporter.sendMail({
-        from: email,
-        to: testTo,
-        subject: "✅ Deepraj Mail Pro — SMTP Test",
-        html: `<div style="font-family:sans-serif;padding:24px;background:#f9fafb;border-radius:12px;max-width:480px">
-          <h2 style="color:#2563eb;margin-top:0">Connection Successful!</h2>
-          <p style="color:#374151">Your SMTP configuration is working correctly.</p>
-          <p style="color:#6b7280;font-size:12px">Sent at ${new Date().toUTCString()}</p>
-        </div>`
+      await fetch(VERCEL_PROXY_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email, password, to: testTo,
+          subject: "✅ Deepraj Mail Pro — SMTP Test",
+          html: `<div style="font-family:sans-serif;padding:24px;background:#f9fafb;border-radius:12px;max-width:480px">
+            <h2 style="color:#2563eb;margin-top:0">Connection Successful!</h2>
+            <p style="color:#374151">Your Render Server successfully bypassed the firewall via Vercel.</p>
+            <p style="color:#6b7280;font-size:12px">Sent at ${new Date().toUTCString()}</p>
+          </div>`
+        })
       });
     }
     res.json({ success: true, message: testTo ? `Test email sent to ${testTo}` : 'Connection verified!' });
