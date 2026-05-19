@@ -223,9 +223,14 @@ const runCampaign = async (payload, sendEvent = () => {}) => {
   const parsedRecipients = JSON.parse(recipients || "[]");
   
   const transporter = nodemailer.createTransport({
-    service: "gmail",
+    host: "smtp.gmail.com",
+    port: 587,
+    secure: false,
     auth: { user: email, pass: password },
     pool: true, maxConnections: 3,
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 10000,
   });
 
   const results = [];
@@ -388,7 +393,15 @@ app.post("/api/test-smtp", authenticateToken, async (req, res) => {
   const { email, password, testTo } = req.body;
   if (!email || !password) return res.status(400).json({ success: false, message: 'SMTP credentials required' });
   try {
-    const transporter = nodemailer.createTransport({ service: "gmail", auth: { user: email, pass: password } });
+    const transporter = nodemailer.createTransport({ 
+      host: "smtp.gmail.com", 
+      port: 587, 
+      secure: false, 
+      auth: { user: email, pass: password },
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 10000,
+    });
     await transporter.verify();
     // Send actual test email if testTo is provided
     if (testTo) {
