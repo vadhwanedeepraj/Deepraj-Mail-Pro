@@ -350,6 +350,39 @@ app.get("/api/admin/clients", authenticateToken, requireAdmin, (req, res) => {
   res.json({ success: true, clients });
 });
 
+// Update a client
+app.put("/api/admin/clients/:id", authenticateToken, requireAdmin, async (req, res) => {
+  const users = db.users();
+  const index = users.findIndex(u => u.id === req.params.id && u.role === 'client');
+  if (index === -1) return res.status(404).json({ success: false, message: "Client not found" });
+
+  const { email, password } = req.body;
+  if (email) {
+    if (users.find(u => u.email === email && u.id !== req.params.id)) {
+      return res.status(400).json({ success: false, message: "Email already in use" });
+    }
+    users[index].email = email;
+  }
+  if (password) {
+    users[index].password = await bcrypt.hash(password, 10);
+    users[index].mustResetPassword = true; // Force them to change it on next login
+  }
+  
+  db.saveUsers(users);
+  res.json({ success: true, message: "Client updated successfully" });
+});
+
+// Delete a client
+app.delete("/api/admin/clients/:id", authenticateToken, requireAdmin, (req, res) => {
+  let users = db.users();
+  const index = users.findIndex(u => u.id === req.params.id && u.role === 'client');
+  if (index === -1) return res.status(404).json({ success: false, message: "Client not found" });
+
+  users.splice(index, 1);
+  db.saveUsers(users);
+  res.json({ success: true, message: "Client deleted successfully" });
+});
+
 // Test SMTP connection
 app.post("/api/test-smtp", authenticateToken, async (req, res) => {
   const { email, password, testTo } = req.body;

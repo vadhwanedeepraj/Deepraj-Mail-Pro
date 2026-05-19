@@ -185,6 +185,33 @@ export default function App() {
     }
   };
 
+  const [editingClient, setEditingClient] = useState(null);
+  const [editClientEmail, setEditClientEmail] = useState("");
+  const [editClientPassword, setEditClientPassword] = useState("");
+
+  const handleDeleteClient = async (id) => {
+    if (!window.confirm("Are you sure you want to delete this client?")) return;
+    try {
+      await fetch(`${BACKEND_URL}/api/admin/clients/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
+      setClientList(prev => prev.filter(c => c.id !== id));
+    } catch (err) { alert("Failed to delete client"); }
+  };
+
+  const handleUpdateClient = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/admin/clients/${editingClient.id}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ email: editClientEmail || undefined, password: editClientPassword || undefined })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message);
+      setEditingClient(null);
+      fetch(`${BACKEND_URL}/api/admin/clients`, { headers: { 'Authorization': `Bearer ${token}` } })
+        .then(r => r.json()).then(d => { if (d.success) setClientList(d.clients); });
+    } catch (err) { alert(err.message); }
+  };
+
   // Default tab: admin lands on Admin Panel, client lands on data
   const [tab, setTab] = useState(() => {
     const role = localStorage.getItem('edp_role');
@@ -633,6 +660,7 @@ export default function App() {
                           <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Email</th>
                           <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
                           <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Created</th>
+                          <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
                         </tr></thead>
                         <tbody className="divide-y divide-gray-50">
                           {clientList.map((c, i) => (
@@ -640,6 +668,10 @@ export default function App() {
                               <td className="px-4 py-3 text-gray-800 font-medium">{c.email}</td>
                               <td className="px-4 py-3">{c.mustResetPassword ? <Badge color="amber">Pending Reset</Badge> : <Badge color="green">Active</Badge>}</td>
                               <td className="px-4 py-3 text-gray-400 text-xs">{c.createdAt ? new Date(c.createdAt).toLocaleDateString() : '—'}</td>
+                              <td className="px-4 py-3 text-right space-x-3">
+                                <button onClick={() => { setEditingClient(c); setEditClientEmail(c.email); setEditClientPassword(""); }} className="text-blue-500 hover:text-blue-700 text-sm font-medium transition-colors">Edit</button>
+                                <button onClick={() => handleDeleteClient(c.id)} className="text-red-500 hover:text-red-700 text-sm font-medium transition-colors">Delete</button>
+                              </td>
                             </tr>
                           ))}
                         </tbody>
@@ -647,6 +679,22 @@ export default function App() {
                     </div>
                   )}
                 </Card>
+                
+                {editingClient && (
+                  <div className="mt-6">
+                    <Card>
+                      <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2"><Icon name="settings" size={16} className="text-blue-600"/> Edit Client</h3>
+                      <form onSubmit={handleUpdateClient} className="space-y-4">
+                        <Input label="New Email Address" type="email" value={editClientEmail} onChange={e => setEditClientEmail(e.target.value)} />
+                        <Input label="New Password (Optional)" type="text" placeholder="Leave blank to keep unchanged" value={editClientPassword} onChange={e => setEditClientPassword(e.target.value)} />
+                        <div className="flex gap-3">
+                          <Button type="button" variant="secondary" onClick={() => setEditingClient(null)}>Cancel</Button>
+                          <Button type="submit" variant="primary">Save Changes</Button>
+                        </div>
+                      </form>
+                    </Card>
+                  </div>
+                )}
               </div>
             </div>
           </div>
