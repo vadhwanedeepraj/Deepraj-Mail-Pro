@@ -196,6 +196,24 @@ export default function App() {
   const [clientListLoading, setClientListLoading] = useState(false);
   const [data, setData] = useState(null);
   const [columns, setColumns] = useState([]);
+  const [manualEmailsText, setManualEmailsText] = useState("");
+
+  const handleManualEmailsSubmit = () => {
+    const emails = manualEmailsText
+      .split(/[\n,]+/)
+      .map(e => e.trim())
+      .filter(e => validateEmail(e));
+    if (emails.length === 0) return alert("Please enter at least one valid email address.");
+    
+    const rows = emails.map(email => ({ "Email Address": email }));
+    setColumns(["Email Address"]);
+    setData(rows);
+    setEmailCol("Email Address");
+    setNameCol("");
+    setIdCol("");
+    setManualEmailsText("");
+  };
+
   const [emailCol, setEmailCol] = useState("");
   const [nameCol, setNameCol] = useState("");
   const [idCol, setIdCol] = useState("");
@@ -642,7 +660,22 @@ export default function App() {
               <p className="text-gray-500 text-sm mt-1">Upload your CSV or Excel file with recipient data</p>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Manual Entry */}
+              <Card className="flex flex-col">
+                <h3 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                  <Icon name="mail" size={16} /> Quick Add Emails
+                </h3>
+                <textarea 
+                  className="w-full flex-1 min-h-[160px] p-4 bg-gray-50 border border-gray-200 rounded-xl text-sm mb-4 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/30"
+                  placeholder="Paste emails separated by commas or new lines...&#10;&#10;user1@example.com&#10;user2@company.com"
+                  value={manualEmailsText}
+                  onChange={(e) => setManualEmailsText(e.target.value)}
+                />
+                <Button onClick={handleManualEmailsSubmit} variant="primary" className="w-full justify-center">
+                  Add Emails
+                </Button>
+              </Card>
               {/* Upload */}
               <Card>
                 <h3 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
