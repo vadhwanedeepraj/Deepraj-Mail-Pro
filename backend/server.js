@@ -85,6 +85,10 @@ const requireAdmin = (req, res, next) => {
 
 const isValidEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 
+// ─── HEALTH CHECK (keep-alive for Render free tier) ──────────────────────────
+app.get("/api/ping", (req, res) => res.json({ ok: true, ts: Date.now() }));
+
+
 // ─── AUTHENTICATION & ADMIN ROUTES ──────────────────────────────────────────
 
 app.post("/api/admin/clients", authenticateToken, requireAdmin, async (req, res) => {

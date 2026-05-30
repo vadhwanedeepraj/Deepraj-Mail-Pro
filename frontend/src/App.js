@@ -472,6 +472,15 @@ export default function App() {
     }
   }, [tab, userRole, token]);
 
+  // ── Keep-alive ping: prevents Render free tier from spinning down ──
+  // Pings the backend every 10 minutes while the app is open in the browser.
+  useEffect(() => {
+    const ping = () => fetch(`${BACKEND_URL}/api/ping`).catch(() => {});
+    ping(); // ping immediately on load
+    const interval = setInterval(ping, 10 * 60 * 1000); // every 10 minutes
+    return () => clearInterval(interval);
+  }, []);
+
   if (!token) {
     return <Auth onLogin={(t, e, r) => { setToken(t); setUserEmail(e); setUserRole(r); setTab(r === 'admin' ? 'admin' : 'data'); }} />;
   }
