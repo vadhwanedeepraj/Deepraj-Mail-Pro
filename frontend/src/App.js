@@ -211,6 +211,29 @@ export default function App() {
     } catch {}
   };
 
+  const handleResetPassword = async (client) => {
+    const newPass = prompt(`Enter new secure password for ${client.email} (min. 8 characters):`);
+    if (newPass === null) return;
+    if (newPass.length < 8) return alert("Password must be at least 8 characters long.");
+    
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/admin/clients/${client.id}/password`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ password: newPass })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        alert(`Successfully updated password for ${client.email}!`);
+        fetchClients();
+      } else {
+        alert(data.message || "Failed to update password.");
+      }
+    } catch {
+      alert("Error resetting password.");
+    }
+  };
+
   const handleCancelCampaign = async (campaignId) => {
     if (!confirm("Are you sure you want to immediately cancel this running email dispatch? It will stop dispatching mid-send.")) return;
     try {
@@ -783,6 +806,9 @@ export default function App() {
                                   </button>
                                   <button onClick={() => handleSetQuota(c)} className="text-xs font-semibold px-2 py-1 rounded-lg border bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 transition-colors">
                                     Quota
+                                  </button>
+                                  <button onClick={() => handleResetPassword(c)} className="text-xs font-semibold px-2 py-1 rounded-lg border bg-violet-50 text-violet-700 border-violet-200 hover:bg-violet-100 transition-colors">
+                                    Reset Pass
                                   </button>
                                   <button onClick={() => handleDeleteClient(c)} className="text-xs font-semibold p-1 py-1 rounded-lg border bg-red-50 text-red-600 border-red-200 hover:bg-red-100 transition-colors" title="Delete Client Account">
                                     <Icon name="trash" size={13} />

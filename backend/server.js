@@ -550,6 +550,28 @@ app.put("/api/admin/clients/:id/quota", authenticateToken, requireAdmin, (req, r
   res.json({ success: true, message: `Client daily quota updated successfully`, dailyQuota: limit });
 });
 
+// Reset client password directly (Admin only)
+app.put("/api/admin/clients/:id/password", authenticateToken, requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  const { password } = req.body;
+  
+  if (!password || password.length < 8) {
+    return res.status(400).json({ success: false, message: "Password must be at least 8 characters long." });
+  }
+  
+  const users = db.users();
+  const idx = users.findIndex(u => u.id === id);
+  if (idx === -1) return res.status(404).json({ success: false, message: "Client not found" });
+  
+  const hashedPassword = await bcrypt.hash(password, 10);
+  users[idx].password = hashedPassword;
+  users[idx].mustResetPassword = false; // Override forces no forced reset needed since Admin did it
+  db.saveUsers(users);
+  
+  logger.info(`Admin reset client password`, { clientEmail: users[idx].email });
+  res.json({ success: true, message: "Client password updated successfully" });
+});
+
 // Delete client account completely (Admin only)
 app.delete("/api/admin/clients/:id", authenticateToken, requireAdmin, (req, res) => {
   const { id } = req.params;
