@@ -15,6 +15,10 @@ const { getQueue, initializeQueueWorker, queueEvents } = require("./queue");
 const app = express();
 const upload = multer({ dest: os.tmpdir() });
 
+// Global active campaign trackers
+const activeCampaigns = new Map();
+const activeCancellations = new Set();
+
 // Security & Middleware
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
@@ -111,6 +115,10 @@ app.post("/api/admin/clients", authenticateToken, requireAdmin, async (req, res)
     password: hashedPassword, 
     role: "client", 
     mustResetPassword: true,
+    isSuspended: false,
+    dailyQuota: 200,
+    sentToday: 0,
+    lastSentDate: new Date().toISOString().slice(0, 10),
     createdAt: new Date().toISOString()
   });
   db.saveUsers(users);
@@ -127,14 +135,45 @@ app.post("/api/auth/login", async (req, res) => {
     return res.status(400).json({ success: false, message: "Invalid credentials" });
   }
 
-  // Enforce Tenant ID existence (migration safety)
+  // Reject login if suspended
+  if (user.isSuspended) {
+    return res.status(403).json({ success: false, message: "Your account has been suspended. Please contact the Administrator." });
+  }
+
+  // Enforce Tenant ID existence & quota fields (migration safety)
   let finalTenantId = user.tenantId;
+  let mustSave = false;
   if (!finalTenantId) {
     finalTenantId = user.id || crypto.randomUUID();
+    user.tenantId = finalTenantId;
+    mustSave = true;
+  }
+  if (user.isSuspended === undefined) {
+    user.isSuspended = false;
+    mustSave = true;
+  }
+  if (user.dailyQuota === undefined) {
+    user.dailyQuota = 200;
+    mustSave = true;
+  }
+  if (user.sentToday === undefined) {
+    user.sentToday = 0;
+    mustSave = true;
+  }
+  if (user.lastSentDate === undefined) {
+    user.lastSentDate = new Date().toISOString().slice(0, 10);
+    mustSave = true;
+  }
+
+  if (mustSave) {
     const users = db.users(); // Read AFTER await
     const idx = users.findIndex(u => u.email === user.email);
     if (idx !== -1) {
       users[idx].tenantId = finalTenantId;
+      users[idx].isSuspended = user.isSuspended;
+      users[idx].dailyQuota = user.dailyQuota;
+      users[idx].sentToday = user.sentToday;
+      users[idx].lastSentDate = user.lastSentDate;
       db.saveUsers(users);
     }
   }
@@ -187,9 +226,32 @@ app.get("/api/analytics", authenticateToken, (req, res) => {
 });
 
 app.post("/api/send-bulk", authenticateToken, upload.fields([{ name: "attachments" }]), async (req, res) => {
-  const { tenantId } = req.user;
+  const { tenantId, role } = req.user;
   const { scheduleTime, ...bodyFields } = req.body;
   const uploadedFiles = req.files?.attachments || [];
+  
+  // Quota Verification for non-admins
+  if (role !== 'admin') {
+    const users = db.users();
+    const client = users.find(u => u.tenantId === tenantId);
+    if (client) {
+      const todayStr = new Date().toISOString().slice(0, 10);
+      let sentToday = client.sentToday || 0;
+      if (client.lastSentDate !== todayStr) {
+        sentToday = 0;
+      }
+      
+      const recipients = JSON.parse(req.body.recipients || "[]");
+      const dailyQuota = client.dailyQuota !== undefined ? client.dailyQuota : 200;
+      
+      if (sentToday + recipients.length > dailyQuota) {
+        return res.status(400).json({ 
+          success: false, 
+          message: `Daily sending quota exceeded. You have sent ${sentToday}/${dailyQuota} emails today. This campaign has ${recipients.length} recipients, exceeding your remaining quota.` 
+        });
+      }
+    }
+  }
   
   const attachmentMap = {};
   for (const file of uploadedFiles) {
@@ -276,6 +338,9 @@ const runCampaign = async (payload, sendEvent = () => {}) => {
   
   const VERCEL_PROXY_URL = "https://email-proxy-one.vercel.app/api/send";
 
+  // Register in activeCampaigns tracking
+  activeCampaigns.set(campaignId, { campaignId, tenantId, email, subject, progress: 0, total: parsedRecipients.length, currentEmail: "", status: "sending" });
+
   const results = [];
   const campaign = {
     id: campaignId,
@@ -292,6 +357,21 @@ const runCampaign = async (payload, sendEvent = () => {}) => {
   for (let i = 0; i < parsedRecipients.length; i++) {
     const row = parsedRecipients[i];
     const { to, name, id, templateVars } = row;
+
+    // Check if campaign was aborted by Admin
+    if (activeCancellations.has(campaignId)) {
+      logger.warn(`Campaign ${campaignId} cancelled by Admin mid-dispatch`);
+      results.push({ to: "—", status: "cancelled", reason: "Cancelled by Administrator" });
+      sendEvent({ type: "progress", index: i, total: parsedRecipients.length, to: "—", status: "cancelled" });
+      break;
+    }
+
+    // Update activeCampaign progress details
+    if (activeCampaigns.has(campaignId)) {
+      const activeObj = activeCampaigns.get(campaignId);
+      activeObj.progress = i;
+      activeObj.currentEmail = to;
+    }
 
     if (!to || !isValidEmail(to)) {
       results.push({ to, status: "invalid", reason: "Bad email" });
@@ -367,6 +447,23 @@ const runCampaign = async (payload, sendEvent = () => {}) => {
     await new Promise(r => setTimeout(r, delay));
   }
 
+  // Clean active states
+  activeCampaigns.delete(campaignId);
+  activeCancellations.delete(campaignId);
+
+  // Update client sent count limit
+  const users = db.users();
+  const clientIdx = users.findIndex(u => u.tenantId === tenantId);
+  if (clientIdx !== -1 && users[clientIdx].role !== 'admin') {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    if (users[clientIdx].lastSentDate !== todayStr) {
+      users[clientIdx].sentToday = 0;
+      users[clientIdx].lastSentDate = todayStr;
+    }
+    users[clientIdx].sentToday += results.filter(r => r.status === "sent").length;
+    db.saveUsers(users);
+  }
+
   const campaigns = db.campaigns();
   campaign.sent = results.filter(r => r.status === "sent").length;
   campaign.failed = results.filter(r => r.status === "error").length;
@@ -416,6 +513,86 @@ app.get("/api/admin/clients", authenticateToken, requireAdmin, (req, res) => {
     .filter(u => u.role === 'client')
     .map(({ password, ...safe }) => safe); // never expose password hash
   res.json({ success: true, clients });
+});
+
+// Toggle client suspended status (Admin only)
+app.put("/api/admin/clients/:id/status", authenticateToken, requireAdmin, (req, res) => {
+  const { id } = req.params;
+  const { isSuspended } = req.body;
+  
+  const users = db.users();
+  const idx = users.findIndex(u => u.id === id);
+  if (idx === -1) return res.status(404).json({ success: false, message: "Client not found" });
+  
+  users[idx].isSuspended = !!isSuspended;
+  db.saveUsers(users);
+  
+  logger.info(`Admin updated client status`, { clientEmail: users[idx].email, isSuspended });
+  res.json({ success: true, message: `Client status updated successfully`, isSuspended: users[idx].isSuspended });
+});
+
+// Update client daily quota limit (Admin only)
+app.put("/api/admin/clients/:id/quota", authenticateToken, requireAdmin, (req, res) => {
+  const { id } = req.params;
+  const { dailyQuota } = req.body;
+  
+  const limit = parseInt(dailyQuota, 10);
+  if (isNaN(limit) || limit < 0) return res.status(400).json({ success: false, message: "Invalid daily quota" });
+  
+  const users = db.users();
+  const idx = users.findIndex(u => u.id === id);
+  if (idx === -1) return res.status(404).json({ success: false, message: "Client not found" });
+  
+  users[idx].dailyQuota = limit;
+  db.saveUsers(users);
+  
+  logger.info(`Admin updated client daily quota`, { clientEmail: users[idx].email, dailyQuota: limit });
+  res.json({ success: true, message: `Client daily quota updated successfully`, dailyQuota: limit });
+});
+
+// Delete client account completely (Admin only)
+app.delete("/api/admin/clients/:id", authenticateToken, requireAdmin, (req, res) => {
+  const { id } = req.params;
+  
+  const users = db.users();
+  const idx = users.findIndex(u => u.id === id);
+  if (idx === -1) return res.status(404).json({ success: false, message: "Client not found" });
+  
+  const clientEmail = users[idx].email;
+  const tenantId = users[idx].tenantId;
+  
+  // Remove user
+  users.splice(idx, 1);
+  db.saveUsers(users);
+  
+  // Cascade clean campaigns & tracking logs for this tenant (optional but very clean!)
+  const campaigns = db.campaigns().filter(c => c.tenantId !== tenantId);
+  db.saveCampaigns(campaigns);
+  
+  const tracking = db.tracking().filter(t => t.tenantId !== tenantId);
+  db.saveTracking(tracking);
+  
+  const scheduled = db.scheduled().filter(s => s.tenantId !== tenantId);
+  db.saveScheduled(scheduled);
+  
+  const unsubscribes = db.unsubscribes().filter(u => u.tenantId !== tenantId);
+  db.saveUnsubscribes(unsubscribes);
+  
+  logger.info(`Admin deleted client account and cascade wiped data`, { clientEmail });
+  res.json({ success: true, message: `Client account deleted successfully` });
+});
+
+// Fetch all active email dispatches (Admin only)
+app.get("/api/admin/active-campaigns", authenticateToken, requireAdmin, (req, res) => {
+  res.json({ success: true, activeCampaigns: Array.from(activeCampaigns.values()) });
+});
+
+// Cancel a running email dispatch loop (Admin only)
+app.post("/api/admin/campaigns/:id/cancel", authenticateToken, requireAdmin, (req, res) => {
+  const { id } = req.params;
+  activeCancellations.add(id);
+  logger.warn(`Admin requested cancellation of campaign`, { campaignId: id });
+  res.json({ success: true, message: "Cancellation request received" });
 });
 
 // Test SMTP connection

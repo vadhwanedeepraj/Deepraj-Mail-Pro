@@ -163,6 +163,64 @@ export default function App() {
   const [newClientEmail, setNewClientEmail] = useState("");
   const [newClientResult, setNewClientResult] = useState(null);
   const [creatingClient, setCreatingClient] = useState(false);
+  const [activeCampaigns, setActiveCampaigns] = useState([]);
+
+  const fetchClients = useCallback(() => {
+    if (!token) return;
+    fetch(`${BACKEND_URL}/api/admin/clients`, { headers: { 'Authorization': `Bearer ${token}` } })
+      .then(res => res.json())
+      .then(d => { if (d.success) setClientList(d.clients); })
+      .catch(() => {});
+  }, [token, BACKEND_URL]);
+
+  const handleToggleStatus = async (client) => {
+    try {
+      const nextSuspended = !client.isSuspended;
+      const res = await fetch(`${BACKEND_URL}/api/admin/clients/${client.id}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ isSuspended: nextSuspended })
+      });
+      if (res.ok) fetchClients();
+    } catch {}
+  };
+
+  const handleSetQuota = async (client) => {
+    const limitStr = prompt(`Set Daily Email Quota for ${client.email}:`, client.dailyQuota || 200);
+    if (limitStr === null) return;
+    const dailyQuota = parseInt(limitStr, 10);
+    if (isNaN(dailyQuota) || dailyQuota < 0) return alert("Please enter a valid positive number.");
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/admin/clients/${client.id}/quota`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ dailyQuota })
+      });
+      if (res.ok) fetchClients();
+    } catch {}
+  };
+
+  const handleDeleteClient = async (client) => {
+    if (!confirm(`Are you absolutely sure you want to completely delete ${client.email}? This will wipe their campaigns, unsubscribe list, and active scheduled dispatches permanently.`)) return;
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/admin/clients/${client.id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) fetchClients();
+    } catch {}
+  };
+
+  const handleCancelCampaign = async (campaignId) => {
+    if (!confirm("Are you sure you want to immediately cancel this running email dispatch? It will stop dispatching mid-send.")) return;
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/admin/campaigns/${campaignId}/cancel`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) alert("Cancellation request submitted successfully.");
+    } catch {}
+  };
 
   const handleCreateClient = async (e) => {
     e.preventDefault();
@@ -178,6 +236,7 @@ export default function App() {
       if (!res.ok || !data.success) throw new Error(data.message || 'Failed to create client');
       setNewClientResult({ email: newClientEmail, tempPassword: data.tempPassword });
       setNewClientEmail("");
+      fetchClients();
     } catch (err) {
       setNewClientResult({ error: err.message });
     } finally {
@@ -469,8 +528,19 @@ export default function App() {
         .then(res => res.json())
         .then(d => { if (d.success) setClientList(d.clients); setClientListLoading(false); })
         .catch(() => setClientListLoading(false));
+
+      // Poll active campaigns every 3 seconds for real-time interception dashboard
+      const poll = () => {
+        fetch(`${BACKEND_URL}/api/admin/active-campaigns`, { headers: { 'Authorization': `Bearer ${token}` } })
+          .then(res => res.json())
+          .then(d => { if (d.success) setActiveCampaigns(d.activeCampaigns); })
+          .catch(() => {});
+      };
+      poll();
+      const interval = setInterval(poll, 3000);
+      return () => clearInterval(interval);
     }
-  }, [tab, userRole, token]);
+  }, [tab, userRole, token, BACKEND_URL]);
 
   // ── Keep-alive ping: prevents Render free tier from spinning down ──
   // Pings the backend every 10 minutes while the app is open in the browser.
@@ -623,14 +693,44 @@ export default function App() {
                         <thead className="bg-gray-50"><tr>
                           <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Email</th>
                           <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+                          <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Daily Quota</th>
                           <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Created</th>
+                          <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
                         </tr></thead>
                         <tbody className="divide-y divide-gray-50">
                           {clientList.map((c, i) => (
                             <tr key={i} className="hover:bg-gray-50 transition-colors">
                               <td className="px-4 py-3 text-gray-800 font-medium">{c.email}</td>
-                              <td className="px-4 py-3">{c.mustResetPassword ? <Badge color="amber">Pending Reset</Badge> : <Badge color="green">Active</Badge>}</td>
+                              <td className="px-4 py-3">
+                                {c.isSuspended ? (
+                                  <Badge color="red">Suspended</Badge>
+                                ) : c.mustResetPassword ? (
+                                  <Badge color="amber">Pending Reset</Badge>
+                                ) : (
+                                  <Badge color="green">Active</Badge>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 text-gray-600 font-semibold font-mono text-xs">
+                                {c.sentToday || 0} / {c.dailyQuota || 200}
+                              </td>
                               <td className="px-4 py-3 text-gray-400 text-xs">{c.createdAt ? new Date(c.createdAt).toLocaleDateString() : '—'}</td>
+                              <td className="px-4 py-3 text-right">
+                                <div className="inline-flex items-center gap-1.5">
+                                  <button onClick={() => handleToggleStatus(c)} className={`text-xs font-semibold px-2 py-1 rounded-lg border transition-colors ${
+                                    c.isSuspended 
+                                      ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100' 
+                                      : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
+                                  }`}>
+                                    {c.isSuspended ? "Activate" : "Suspend"}
+                                  </button>
+                                  <button onClick={() => handleSetQuota(c)} className="text-xs font-semibold px-2 py-1 rounded-lg border bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 transition-colors">
+                                    Quota
+                                  </button>
+                                  <button onClick={() => handleDeleteClient(c)} className="text-xs font-semibold p-1 py-1 rounded-lg border bg-red-50 text-red-600 border-red-200 hover:bg-red-100 transition-colors" title="Delete Client Account">
+                                    <Icon name="trash" size={13} />
+                                  </button>
+                                </div>
+                              </td>
                             </tr>
                           ))}
                         </tbody>
@@ -640,6 +740,49 @@ export default function App() {
                 </Card>
               </div>
             </div>
+
+            {/* Live Queue Interception Dashboard */}
+            <Card>
+              <h3 className="font-bold text-gray-800 flex items-center gap-2 mb-4">
+                <Icon name="zap" size={16} className="text-blue-600 animate-pulse"/> Live Email Dispatch Queue
+              </h3>
+              {activeCampaigns.length === 0 ? (
+                <div className="py-8 text-center text-gray-400 text-sm flex flex-col items-center justify-center gap-2">
+                  <Icon name="mail" size={24} className="text-gray-300"/>
+                  No active dispatches currently processing on the server.
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {activeCampaigns.map((ac) => {
+                    const progressPct = ac.total > 0 ? Math.round((ac.progress / ac.total) * 100) : 0;
+                    return (
+                      <div key={ac.campaignId} className="p-4 bg-slate-50 border border-slate-100 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div className="space-y-1 flex-grow">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-bold text-gray-800">{ac.email}</span>
+                            <span className="text-xs px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full font-semibold">sending</span>
+                          </div>
+                          <p className="text-xs text-gray-500 font-medium">Subject: <span className="text-gray-700 font-semibold">{ac.subject}</span></p>
+                          <div className="flex items-center gap-3 w-full max-w-md mt-2">
+                            <div className="flex-grow h-2 bg-gray-200 rounded-full overflow-hidden">
+                              <div className="h-full bg-gradient-to-r from-blue-500 to-violet-500 rounded-full transition-all duration-300" style={{ width: `${progressPct}%` }} />
+                            </div>
+                            <span className="text-xs font-bold text-gray-600">{ac.progress} / {ac.total} ({progressPct}%)</span>
+                          </div>
+                          {ac.currentEmail && <p className="text-[10px] text-gray-400 font-mono mt-1">Current: {ac.currentEmail}</p>}
+                        </div>
+                        <div className="flex-shrink-0">
+                          <button onClick={() => handleCancelCampaign(ac.campaignId)} className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition-colors">
+                            <Icon name="trash" size={13} />
+                            Cancel Dispatch
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </Card>
           </div>
         )}
 
