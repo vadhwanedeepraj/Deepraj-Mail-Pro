@@ -333,10 +333,10 @@ app.post("/api/send-bulk", authenticateToken, upload.fields([{ name: "attachment
 // ─── CORE DISPATCH ENGINE ───────────────────────────────────────────────────
 
 const runCampaign = async (payload, sendEvent = () => {}) => {
-  const { tenantId, email, password, cc, bcc, subject, bodyWith, bodyWithout, recipients, rateLimit, attachments, campaignId, backendHost } = payload;
+  const { tenantId, email, password, cc, bcc, subject, bodyWith, bodyWithout, recipients, rateLimit, attachments, campaignId, backendHost, vercelProxyUrl } = payload;
   const parsedRecipients = JSON.parse(recipients || "[]");
   
-  const VERCEL_PROXY_URL = "https://email-proxy-one.vercel.app/api/send";
+  const VERCEL_PROXY_URL = vercelProxyUrl || "https://email-proxy-one.vercel.app/api/send";
 
   // Register in activeCampaigns tracking
   activeCampaigns.set(campaignId, { campaignId, tenantId, email, subject, progress: 0, total: parsedRecipients.length, currentEmail: "", status: "sending" });
@@ -619,10 +619,10 @@ app.post("/api/admin/campaigns/:id/cancel", authenticateToken, requireAdmin, (re
 
 // Test SMTP connection
 app.post("/api/test-smtp", authenticateToken, async (req, res) => {
-  const { email, password, testTo } = req.body;
+  const { email, password, testTo, vercelProxyUrl } = req.body;
   if (!email || !password) return res.status(400).json({ success: false, message: 'SMTP credentials required' });
   try {
-    const VERCEL_PROXY_URL = "https://email-proxy-one.vercel.app/api/send";
+    const VERCEL_PROXY_URL = vercelProxyUrl || "https://email-proxy-one.vercel.app/api/send";
     
     const response = await fetch(VERCEL_PROXY_URL, {
       method: "POST",

@@ -471,7 +471,12 @@ export default function App() {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`
         },
-        body: JSON.stringify({ email: senderEmail, password: senderPass, testTo: testEmail || senderEmail }),
+        body: JSON.stringify({ 
+          email: senderEmail, 
+          password: senderPass, 
+          testTo: testEmail || senderEmail,
+          vercelProxyUrl: window.location.origin + "/api/send"
+        }),
       });
       if (res.status === 401 || res.status === 403) return handleLogout();
       const json = await res.json();
@@ -500,6 +505,7 @@ export default function App() {
     formData.append("bodyWith", bodyWith);
     formData.append("bodyWithout", bodyWithout);
     formData.append("rateLimit", rateLimit !== undefined ? rateLimit : 0.5);
+    formData.append("vercelProxyUrl", window.location.origin + "/api/send");
     if (scheduleTime) {
       formData.append("scheduleTime", new Date(scheduleTime).toISOString());
     }
