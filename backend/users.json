@@ -1,0 +1,18 @@
+[
+  {
+    "id": "6bab3c29-f716-4c60-9414-aeb4613fe305",
+    "tenantId": "ca4d2dde-f89a-41be-a7c8-39200b31c3e5",
+    "email": "admin@gmail.com",
+    "password": "$2b$10$OcXaVohNC0ZipLCsLH1wI.zsg56jPQAsX09/GeuSd9np9nh4/8E4S",
+    "role": "admin",
+    "mustResetPassword": false
+  },
+  {
+    "id": "dbda25c8-4b20-4567-9f74-d9a0401851c2",
+    "tenantId": "15903a1f-f4ef-44c5-bcd4-e9ee42a05ae3",
+    "email": "deepraj@gmail.com",
+    "password": "[PASSWORD]",
+    "role": "client",
+    "mustResetPassword": false
+  }
+]

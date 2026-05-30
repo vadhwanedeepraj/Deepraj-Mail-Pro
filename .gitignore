@@ -1,0 +1,45 @@
+# Dependencies
+node_modules/
+.npm
+
+# Environment variables
+.env
+.env.local
+.env.production
+.env.*.local
+
+# Build output
+build/
+dist/
+frontend/build/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Runtime data
+*.pid
+*.seed
+*.pid.lock
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+
+# JSON data files (runtime state, not source)
+backend/users.json
+backend/campaigns.json
+backend/tracking.json
+backend/scheduled.json
+backend/unsubscribes.json
+
+# Uploaded attachments (runtime)
+backend/attachments/
+
+# Package locks (keep package-lock.json in backend/frontend but not root)
+package-lock.json

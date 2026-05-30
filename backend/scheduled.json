@@ -1,0 +1,48 @@
+[
+  {
+    "id": "baac082a-a1a0-423d-88ee-93116cdf920a",
+    "scheduleTime": "2026-05-10T09:33:00.000Z",
+    "status": "failed",
+    "payload": {
+      "email": "deeprajvadhwane01@gmail.com",
+      "password": "mbxf glys jpgg ktmn",
+      "cc": "",
+      "bcc": "",
+      "subject": "Important Update — {{ Name }}",
+      "bodyWith": "<p>Dear {{ Name }},</p><p><br></p><p>Please find your document attached.</p><p><br></p><p>Best regards</p>",
+      "bodyWithout": "<p>Dear {{ Name }},</p><p><br></p><p>Your document is being prepared and will be sent shortly.</p><p><br></p><p>Best regards</p>",
+      "rateLimit": "0.5",
+      "recipients": "[{\"to\":\"deeprajvadhwane01@gmail.com\",\"name\":\"Deepraj\",\"id\":\"d_123\",\"templateVars\":{\"name\":\"Deepraj\",\"email\":\"deeprajvadhwane01@gmail.com\",\"id\":\"d_123\"}},{\"to\":\"vadhwanedeepraj01@gmail.com\",\"name\":\"Deepu\",\"id\":\"d_124\",\"templateVars\":{\"name\":\"Deepu\",\"email\":\"vadhwanedeepraj01@gmail.com\",\"id\":\"d_124\"}}]",
+      "attachments": {
+        "d_123": "C:\\Project\\email-dispatcher-pro\\email-dispatcher\\backend\\attachments\\2d31ce557528281de4ed74cb1ebfb6a1.pdf",
+        "d_124": "C:\\Project\\email-dispatcher-pro\\email-dispatcher\\backend\\attachments\\c15df6d1d703768ff05fed6df6146703.pdf"
+      },
+      "campaignId": "ea7a8d26-9d6d-43cb-bb9b-2a9c846f1a57",
+      "backendHost": "http://localhost:3001"
+    },
+    "error": "Timeout - worker crashed"
+  },
+  {
+    "id": "0cf1c5e6-8ba1-47c1-8733-bebac1bca2a3",
+    "scheduleTime": "2026-05-10T09:36:00.000Z",
+    "status": "failed",
+    "payload": {
+      "email": "deeprajvadhwane01@gmail.com",
+      "password": "mbxf glys jpgg ktmn",
+      "cc": "",
+      "bcc": "",
+      "subject": "Important Update   {{ name}}",
+      "bodyWith": "<p>Dear {{ name }},</p><p><br></p><p>Please find your document attached.</p><p><br></p><p>Best regards</p>",
+      "bodyWithout": "<p>Dear {{ Name }},</p><p><br></p><p>Your document is being prepared and will be sent shortly.</p><p><br></p><p>Best regards</p>",
+      "rateLimit": "0.5",
+      "recipients": "[{\"to\":\"deeprajvadhwane01@gmail.com\",\"name\":\"Deepraj\",\"id\":\"d_123\",\"templateVars\":{\"name\":\"Deepraj\",\"email\":\"deeprajvadhwane01@gmail.com\",\"id\":\"d_123\"}},{\"to\":\"vadhwanedeepraj01@gmail.com\",\"name\":\"Deepu\",\"id\":\"d_124\",\"templateVars\":{\"name\":\"Deepu\",\"email\":\"vadhwanedeepraj01@gmail.com\",\"id\":\"d_124\"}}]",
+      "attachments": {
+        "d_123": "C:\\Project\\email-dispatcher-pro\\email-dispatcher\\backend\\attachments\\8b13ba362bf8bd287028a86936cecda9.pdf",
+        "d_124": "C:\\Project\\email-dispatcher-pro\\email-dispatcher\\backend\\attachments\\535c0fa0a83e64222bc6c117c42ade2f.pdf"
+      },
+      "campaignId": "33073ca8-12d7-47a4-8945-b25bd6bf159e",
+      "backendHost": "http://localhost:3001"
+    },
+    "error": "Timeout - worker crashed"
+  }
+]
