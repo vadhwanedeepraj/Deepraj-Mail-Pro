@@ -54,8 +54,32 @@ const makeFallbackQueue = () => ({
 
 // ─── REDIS CONNECTION ─────────────────────────────────────────────────────────
 const redisOpts = REDIS_URL
-  ? { maxRetriesPerRequest: null, connectTimeout: 8000, enableReadyCheck: false }
-  : { host: REDIS_HOST, port: REDIS_PORT, maxRetriesPerRequest: null, connectTimeout: 3000, enableReadyCheck: false };
+  ? { 
+      maxRetriesPerRequest: null, 
+      connectTimeout: 8000, 
+      enableReadyCheck: false,
+      retryStrategy(times) {
+        if (times > 3) {
+          logger.info("Redis connection attempts exceeded limit. Using fallback.");
+          return null; // Stop retrying
+        }
+        return Math.min(times * 100, 2000);
+      }
+    }
+  : { 
+      host: REDIS_HOST, 
+      port: REDIS_PORT, 
+      maxRetriesPerRequest: null, 
+      connectTimeout: 3000, 
+      enableReadyCheck: false,
+      retryStrategy(times) {
+        if (times > 3) {
+          logger.info("Local Redis connection attempts exceeded limit. Using in-memory fallback.");
+          return null; // Stop retrying
+        }
+        return Math.min(times * 100, 1000);
+      }
+    };
 
 logger.info("Attempting Redis connection...", REDIS_URL ? { via: "REDIS_URL" } : { host: REDIS_HOST, port: REDIS_PORT });
 
