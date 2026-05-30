@@ -222,6 +222,64 @@ export default function App() {
     } catch {}
   };
 
+  const [manualEmailsInput, setManualEmailsInput] = useState("");
+
+  const handleAddManualEmails = () => {
+    if (!manualEmailsInput.trim()) return;
+    
+    // Split by newlines, commas, or semicolons
+    const rawItems = manualEmailsInput.split(/[\n,;]+/);
+    const parsedList = [];
+    
+    for (let item of rawItems) {
+      item = item.trim();
+      if (!item) continue;
+      
+      // Parse "Display Name <email@domain.com>" format
+      const match = item.match(/(.+?)<(.+?)>/);
+      if (match) {
+        const name = match[1].trim();
+        const email = match[2].trim();
+        if (validateEmail(email)) {
+          parsedList.push({ email, name, id: "" });
+        }
+      } else {
+        if (validateEmail(item)) {
+          parsedList.push({ email: item, name: item.split('@')[0], id: "" });
+        }
+      }
+    }
+    
+    if (parsedList.length === 0) {
+      alert("No valid email addresses found in the input.");
+      return;
+    }
+    
+    const newColumns = ["email", "name", "id"];
+    
+    setData((prev) => {
+      const existing = prev || [];
+      const mappedList = parsedList.map(item => ({
+        email: item.email,
+        name: item.name,
+        id: item.id
+      }));
+      return [...existing, ...mappedList];
+    });
+    
+    setColumns((prev) => {
+      const union = new Set([...prev, ...newColumns]);
+      return Array.from(union);
+    });
+    
+    setEmailCol("email");
+    setNameCol("name");
+    setIdCol("id");
+    
+    setManualEmailsInput("");
+    alert(`Successfully added ${parsedList.length} manual email(s) to the list!`);
+  };
+
   const handleCreateClient = async (e) => {
     e.preventDefault();
     setCreatingClient(true);
@@ -794,7 +852,7 @@ export default function App() {
               <p className="text-gray-500 text-sm mt-1">Upload your CSV or Excel file with recipient data</p>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {/* Upload */}
               <Card>
                 <h3 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
@@ -813,10 +871,34 @@ export default function App() {
                 </div>
                 {data && (
                   <div className="mt-4 flex items-center gap-3 p-3 bg-green-50 rounded-xl">
-                    <Icon name="check" size={16} className="text-green-600 flex-shrink-0" />
+                     <Icon name="check" size={16} className="text-green-600 flex-shrink-0" />
                     <span className="text-sm text-green-700 font-medium">{data.length} rows loaded, {columns.length} columns</span>
                   </div>
                 )}
+              </Card>
+
+              {/* Manual Email Entry */}
+              <Card>
+                <h3 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                  <Icon name="mail" size={16} /> Manual Email Entry
+                  <Badge color="gray">optional</Badge>
+                </h3>
+                <div className="space-y-3">
+                  <Textarea
+                    placeholder="Enter emails separated by commas, semicolons, or newlines. Example:&#10;john@example.com&#10;Jane Doe <jane@example.com>;"
+                    rows={4}
+                    value={manualEmailsInput}
+                    onChange={(e) => setManualEmailsInput(e.target.value)}
+                    className="w-full text-xs font-mono h-[116px] resize-y"
+                  />
+                  <Button 
+                    onClick={handleAddManualEmails} 
+                    icon={<Icon name="plus" size={14} />}
+                    className="w-full justify-center text-xs py-2"
+                  >
+                    Add to Recipients List
+                  </Button>
+                </div>
               </Card>
 
               {/* PDF Attachments */}
