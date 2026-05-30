@@ -1,0 +1,33 @@
+name: Deepraj Mail Pro CI/CD
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v3
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+
+    - name: Install & Lint Backend
+      run: |
+        cd backend
+        npm ci
+        # Run syntax check / compile check
+        node --check server.js
+
+    - name: Install & Build Frontend
+      run: |
+        cd frontend
+        npm ci
+        npm run build
