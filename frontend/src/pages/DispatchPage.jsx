@@ -105,6 +105,11 @@ export function DispatchPage({
         return;
       }
 
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json.message || `Server returned error status ${res.status}`);
+      }
+
       if (scheduleTime) {
         const json = await res.json();
         if (json.scheduled) {
@@ -120,6 +125,7 @@ export function DispatchPage({
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
+      let hasFinished = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -132,16 +138,29 @@ export function DispatchPage({
           try {
             const evt = JSON.parse(line.slice(6));
             if (evt.type === "progress") {
-              setSendProgress(Math.round(((evt.index + 1) / evt.total) * 100));
+              if (evt.index !== undefined && evt.total !== undefined) {
+                setSendProgress(Math.round(((evt.index + 1) / evt.total) * 100));
+              }
               setSendLog((prev) => [...prev, evt]);
+              
+              // Handle mid-stream campaign execution errors
+              if (evt.status === "error" && (!evt.to || evt.to === "—")) {
+                setSending(false);
+                showAlert("Campaign Error", evt.reason || "An error occurred during dispatch", "error");
+                hasFinished = true;
+              }
             } else if (evt.type === "done") {
-              // Note: Results array is empty on complete bulk enqueue, so we fetch details from history
               setSendResults(evt.results || []);
               setSending(false);
               showAlert("Success", "Campaign dispatch successfully completed!", "success");
+              hasFinished = true;
             }
           } catch (_) {}
         }
+      }
+
+      if (!hasFinished) {
+        setSending(false);
       }
     } catch (err) {
       setSendLog((prev) => [...prev, { status: "error", to: "—", reason: String(err.message || err) }]);

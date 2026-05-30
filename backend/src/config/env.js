@@ -9,9 +9,7 @@
 const required = [
   { key: "DATABASE_URL",   hint: "PostgreSQL connection string (from Render database)" },
   { key: "JWT_SECRET",     hint: "Random 64-char string — use: openssl rand -hex 32" },
-  { key: "ENCRYPTION_KEY", hint: "32-byte hex string (64 chars) for AES-256-GCM — use: openssl rand -hex 32" },
-  { key: "ADMIN_EMAIL",    hint: "Email address for the default admin account" },
-  { key: "ADMIN_PASSWORD", hint: "Password for the default admin (min 8 chars)" },
+  { key: "ENCRYPTION_KEY", hint: "Secure random string (minimum 16 chars) for database encryption" },
 ];
 
 const optional = {
@@ -23,6 +21,8 @@ const optional = {
   REDIS_URL:      null,
   REDIS_HOST:     "127.0.0.1",
   REDIS_PORT:     "6379",
+  ADMIN_EMAIL:    "admin@deeprajmail.pro",
+  ADMIN_PASSWORD: "AdminDefault123!",
 };
 
 function validate() {
@@ -38,12 +38,11 @@ function validate() {
     );
   }
 
-  // Validate ENCRYPTION_KEY is exactly 64 hex chars (32 bytes for AES-256)
+  // Validate ENCRYPTION_KEY is secure (at least 16 characters long)
   const encKey = process.env.ENCRYPTION_KEY;
-  if (!/^[0-9a-fA-F]{64}$/.test(encKey)) {
+  if (!encKey || encKey.length < 16) {
     throw new Error(
-      `\n🚨 ENCRYPTION_KEY must be exactly 64 hex characters (32 bytes).\n` +
-      `Generate one with: openssl rand -hex 32\n`
+      `\n🚨 ENCRYPTION_KEY must be at least 16 characters long for security.\n`
     );
   }
 

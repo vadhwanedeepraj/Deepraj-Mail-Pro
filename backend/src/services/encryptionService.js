@@ -4,7 +4,7 @@ const crypto = require("crypto");
 const { ENCRYPTION_KEY } = require("../config/env");
 
 const ALGORITHM  = "aes-256-gcm";
-const KEY_BUFFER = Buffer.from(ENCRYPTION_KEY, "hex"); // 32 bytes
+const KEY_BUFFER = crypto.createHash("sha256").update(ENCRYPTION_KEY).digest(); // derived 32 bytes
 
 /**
  * Encrypts a plaintext string using AES-256-GCM.
