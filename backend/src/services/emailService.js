@@ -21,15 +21,23 @@ async function sendEmailWithBypass({
   attachments,
   verifyOnly
 }) {
-  const useProxy = vercelProxyUrl && 
-                    !vercelProxyUrl.includes("localhost") && 
-                    !vercelProxyUrl.includes("127.0.0.1") && 
-                    !vercelProxyUrl.includes("onrender.com");
+  const DEFAULT_VERCEL_PROXY = "https://email-proxy-one.vercel.app/api/send";
+
+  // If the proxy URL points back to Render itself, swap it for the real Vercel proxy
+  // (Render's free tier blocks outbound SMTP ports 465/587)
+  let effectiveProxyUrl = vercelProxyUrl;
+  if (effectiveProxyUrl && effectiveProxyUrl.includes("onrender.com")) {
+    effectiveProxyUrl = DEFAULT_VERCEL_PROXY;
+  }
+
+  const useProxy = effectiveProxyUrl && 
+                    !effectiveProxyUrl.includes("localhost") && 
+                    !effectiveProxyUrl.includes("127.0.0.1");
 
   try {
     if (useProxy) {
-      logger.info("Routing email dispatch via Vercel Serverless Proxy", { to, proxy: vercelProxyUrl });
-      const response = await fetch(vercelProxyUrl, {
+      logger.info("Routing email dispatch via Vercel Serverless Proxy", { to, proxy: effectiveProxyUrl });
+      const response = await fetch(effectiveProxyUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
