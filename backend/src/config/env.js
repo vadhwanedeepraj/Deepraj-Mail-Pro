@@ -10,19 +10,19 @@ const required = [
   { key: "DATABASE_URL",   hint: "PostgreSQL connection string (from Render database)" },
   { key: "JWT_SECRET",     hint: "Random 64-char string — use: openssl rand -hex 32" },
   { key: "ENCRYPTION_KEY", hint: "Secure random string (minimum 16 chars) for database encryption" },
+  { key: "ADMIN_EMAIL",    hint: "Email address for the default admin account" },
+  { key: "ADMIN_PASSWORD", hint: "Password for the default admin account (min 8 chars)" },
 ];
 
 const optional = {
-  NODE_ENV:       "development",
-  PORT:           "3001",
-  LOG_LEVEL:      "info",
-  BACKEND_URL:    "http://localhost:3001",
-  CORS_ORIGINS:   "http://localhost:3000",
-  REDIS_URL:      null,
-  REDIS_HOST:     "127.0.0.1",
-  REDIS_PORT:     "6379",
-  ADMIN_EMAIL:    "admin@deeprajmail.pro",
-  ADMIN_PASSWORD: "AdminDefault123!",
+  NODE_ENV:    "development",
+  PORT:        "3001",
+  LOG_LEVEL:   "info",
+  BACKEND_URL: "http://localhost:3001",
+  CORS_ORIGINS:"http://localhost:3000",
+  REDIS_URL:   null,
+  REDIS_HOST:  "127.0.0.1",
+  REDIS_PORT:  "6379",
 };
 
 function validate() {

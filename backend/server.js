@@ -9,7 +9,7 @@ const helmet = require("helmet");
 const logger = require("./src/utils/logger");
 const { pool } = require("./src/config/db");
 const { runMigrations } = require("./src/db/migrate");
-const { initializeQueueWorker } = require("./queue");
+const { initializeQueueWorker, getQueue } = require("./queue");
 const { runCampaign } = require("./src/services/campaignRunner");
 const { initializeCleanupCron } = require("./src/services/cleanupService");
 
@@ -20,12 +20,11 @@ const smtpRouter = require("./src/routes/smtp");
 const campaignsRouter = require("./src/routes/campaigns");
 const trackingRouter = require("./src/routes/tracking");
 
-// Controllers (for direct mapping fallback)
+// Controller (for backward-compat direct mapping)
 const smtpController = require("./src/controllers/smtpController");
-const campaignController = require("./src/controllers/campaignController");
 
 // Middlewares
-const errorHandler = require("./src/middleware/errorHandler");
+const { errorHandler } = require("./src/middleware/errorHandler");
 const { apiLimiter } = require("./src/middleware/rateLimiter");
 
 const app = express();

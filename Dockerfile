@@ -2,8 +2,9 @@
 FROM node:18-alpine AS frontend-builder
 WORKDIR /app/frontend
 COPY frontend/package*.json ./
-RUN npm install
+RUN npm install --legacy-peer-deps
 COPY frontend/ ./
+ENV NODE_OPTIONS=--openssl-legacy-provider
 RUN npm run build
 
 # Stage 2: Setup the Node.js Backend
@@ -15,7 +16,7 @@ ENV NODE_ENV=production
 
 # Copy backend dependencies and install
 COPY backend/package*.json ./
-RUN npm install --only=production
+RUN npm install --omit=dev
 
 # Copy backend source code
 COPY backend/ ./
