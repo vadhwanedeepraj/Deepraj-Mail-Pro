@@ -48,7 +48,13 @@ export default function Auth({ onLogin }) {
       const res = await fetch(`${BACKEND_URL}${endpoint}`, {
         method: 'POST', headers, body: JSON.stringify(payload)
       });
-      const data = await res.json();
+      const responseText = await res.text();
+      let data;
+      try {
+        data = responseText ? JSON.parse(responseText) : {};
+      } catch (err) {
+        throw new Error(`Server returned invalid response: ${responseText.substring(0, 100) || "Empty body"} (HTTP ${res.status})`);
+      }
 
       if (!res.ok || !data.success) throw new Error(data.message || 'Authentication failed');
 

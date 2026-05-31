@@ -111,7 +111,13 @@ export function DispatchPage({
       }
 
       if (scheduleTime) {
-        const json = await res.json();
+        const responseText = await res.text();
+        let json;
+        try {
+          json = responseText ? JSON.parse(responseText) : {};
+        } catch (e) {
+          throw new Error(`Server returned invalid response: ${responseText.substring(0, 100) || "Empty body"} (HTTP ${res.status})`);
+        }
         if (json.scheduled) {
           setScheduledSuccess(true);
           setSending(false);
