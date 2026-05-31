@@ -4,7 +4,8 @@ WORKDIR /app/frontend
 COPY frontend/package*.json ./
 RUN npm install --legacy-peer-deps
 COPY frontend/ ./
-ENV NODE_OPTIONS=--openssl-legacy-provider
+ENV NODE_OPTIONS="--openssl-legacy-provider --max-old-space-size=450"
+ENV CI=false
 RUN npm run build
 
 # Stage 2: Setup the Node.js Backend
