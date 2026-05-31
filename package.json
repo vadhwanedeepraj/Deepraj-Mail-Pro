@@ -11,5 +11,8 @@
     "build": "npm run build:frontend",
     "start": "node backend/server.js"
   },
-  "workspaces": ["backend", "frontend"]
+  "workspaces": ["backend", "frontend"],
+  "dependencies": {
+    "nodemailer": "^6.9.13"
+  }
 }

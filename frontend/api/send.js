@@ -22,10 +22,10 @@ module.exports = async (req, res) => {
 
   try {
     const transporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: { user: email, pass: password },
-      pool: true,
-      maxConnections: 1
+      host: "smtp.gmail.com",
+      port: 465,
+      secure: true,
+      auth: { user: email, pass: password }
     });
 
     if (verifyOnly) {
