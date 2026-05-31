@@ -1,5 +1,5 @@
 # Stage 1: Build the React Frontend
-FROM node:18-alpine AS frontend-builder
+FROM node:18-slim AS frontend-builder
 WORKDIR /app/frontend
 COPY frontend/package*.json ./
 RUN npm install --legacy-peer-deps
@@ -9,7 +9,7 @@ ENV CI=false
 RUN npm run build
 
 # Stage 2: Setup the Node.js Backend
-FROM node:18-alpine
+FROM node:18-slim
 WORKDIR /app/backend
 
 # Set production environment
