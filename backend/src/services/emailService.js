@@ -23,25 +23,20 @@ async function sendEmailWithBypass({
 }) {
   const DEFAULT_VERCEL_PROXY = process.env.VERCEL_PROXY_URL || "https://email-proxy-one.vercel.app/api/send";
 
-  const isRunningOnRender = process.env.RENDER === "true" || process.env.NODE_ENV === "production";
-
-  // If the proxy URL points back to Render itself, swap it for the real Vercel proxy
-  // (Render's free tier blocks outbound SMTP ports 465/587)
+  // ALWAYS route through the Vercel proxy by default to bypass firewalls and ISP blocks.
+  // If the provided proxy URL is empty, points back to Render, or points to localhost/127.0.0.1
+  // (which cannot run serverless functions), we automatically swap it to the production Vercel proxy.
   let effectiveProxyUrl = vercelProxyUrl;
-  if (isRunningOnRender) {
-    // Under Render/Production environment, direct SMTP port 465/587 connections are blocked.
-    // We must route through the Vercel proxy. Swap missing or localhost/Render URLs.
-    if (!effectiveProxyUrl || 
-        effectiveProxyUrl.includes("onrender.com") || 
-        effectiveProxyUrl.includes("localhost") || 
-        effectiveProxyUrl.includes("127.0.0.1")) {
-      effectiveProxyUrl = DEFAULT_VERCEL_PROXY;
-    }
+  if (!effectiveProxyUrl || 
+      effectiveProxyUrl.includes("onrender.com") || 
+      effectiveProxyUrl.includes("localhost") || 
+      effectiveProxyUrl.includes("127.0.0.1")) {
+    effectiveProxyUrl = DEFAULT_VERCEL_PROXY;
   }
 
-  const useProxy = effectiveProxyUrl && 
-                    !effectiveProxyUrl.includes("localhost") && 
-                    !effectiveProxyUrl.includes("127.0.0.1");
+  // By default we always use the Vercel proxy to guarantee delivery.
+  // Developers can set BYPASS_PROXY_LOCALLY=true in their local .env file if they want to test direct SMTP locally.
+  const useProxy = process.env.BYPASS_PROXY_LOCALLY !== "true";
 
   try {
     if (useProxy) {
