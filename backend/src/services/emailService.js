@@ -44,9 +44,15 @@ async function sendEmailWithBypass({
           email, password, to, cc, bcc, subject, text, html, attachments, verifyOnly
         })
       });
-      const json = await response.json();
+      const responseText = await response.text();
+      let json;
+      try {
+        json = responseText ? JSON.parse(responseText) : {};
+      } catch (e) {
+        throw new Error(`Vercel proxy returned invalid response: ${responseText.substring(0, 100) || "Empty body"} (HTTP ${response.status})`);
+      }
       if (!response.ok || !json.success) {
-        throw new Error(json.message || "Vercel proxy relay failed");
+        throw new Error(json.message || `Vercel proxy relay failed with HTTP ${response.status}`);
       }
       return json;
     } else {

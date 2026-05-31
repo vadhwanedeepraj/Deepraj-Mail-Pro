@@ -31,7 +31,13 @@ export function useApi() {
         throw new Error(errorMsg);
       }
 
-      const json = await response.json();
+      const responseText = await response.text();
+      let json;
+      try {
+        json = responseText ? JSON.parse(responseText) : {};
+      } catch (e) {
+        throw new Error(`Server returned invalid response: ${responseText.substring(0, 100) || "Empty body"} (HTTP ${response.status})`);
+      }
 
       if (!response.ok || json.success === false) {
         throw new Error(json.message || `Request failed with status ${response.status}`);
