@@ -23,6 +23,7 @@ const optional = {
   REDIS_URL:   null,
   REDIS_HOST:  "127.0.0.1",
   REDIS_PORT:  "6379",
+  VERCEL_PROXY_URL: "https://email-proxy-one.vercel.app/api/send",
 };
 
 function validate() {

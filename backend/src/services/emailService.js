@@ -21,13 +21,22 @@ async function sendEmailWithBypass({
   attachments,
   verifyOnly
 }) {
-  const DEFAULT_VERCEL_PROXY = "https://email-proxy-one.vercel.app/api/send";
+  const DEFAULT_VERCEL_PROXY = process.env.VERCEL_PROXY_URL || "https://email-proxy-one.vercel.app/api/send";
+
+  const isRunningOnRender = process.env.RENDER === "true" || process.env.NODE_ENV === "production";
 
   // If the proxy URL points back to Render itself, swap it for the real Vercel proxy
   // (Render's free tier blocks outbound SMTP ports 465/587)
   let effectiveProxyUrl = vercelProxyUrl;
-  if (effectiveProxyUrl && effectiveProxyUrl.includes("onrender.com")) {
-    effectiveProxyUrl = DEFAULT_VERCEL_PROXY;
+  if (isRunningOnRender) {
+    // Under Render/Production environment, direct SMTP port 465/587 connections are blocked.
+    // We must route through the Vercel proxy. Swap missing or localhost/Render URLs.
+    if (!effectiveProxyUrl || 
+        effectiveProxyUrl.includes("onrender.com") || 
+        effectiveProxyUrl.includes("localhost") || 
+        effectiveProxyUrl.includes("127.0.0.1")) {
+      effectiveProxyUrl = DEFAULT_VERCEL_PROXY;
+    }
   }
 
   const useProxy = effectiveProxyUrl && 
