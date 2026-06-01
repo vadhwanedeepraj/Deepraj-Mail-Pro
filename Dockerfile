@@ -1,15 +1,3 @@
-# Stage 1: Build the React Frontend
-FROM node:18-slim AS frontend-builder
-WORKDIR /app/frontend
-COPY frontend/package*.json ./
-RUN npm install --legacy-peer-deps
-COPY frontend/ ./
-ENV NODE_OPTIONS="--openssl-legacy-provider --max-old-space-size=450"
-ENV CI=false
-ENV GENERATE_SOURCEMAP=false
-RUN npm run build
-
-# Stage 2: Setup the Node.js Backend
 FROM node:18-slim
 WORKDIR /app/backend
 
@@ -23,15 +11,11 @@ RUN npm install --omit=dev
 # Copy backend source code
 COPY backend/ ./
 
-# Copy the built React app from Stage 1 into the frontend/build directory
-# (Our server.js is configured to serve from ../frontend/build)
-COPY --from=frontend-builder /app/frontend/build /app/frontend/build
-
 # Ensure required persistent directories exist
 RUN mkdir -p /app/backend/attachments && chmod 777 /app/backend/attachments
 
 # Expose the API and Web port
 EXPOSE 3001
 
-# Start the enterprise backend
+# Start the backend server
 CMD ["node", "server.js"]
