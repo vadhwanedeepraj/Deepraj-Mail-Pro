@@ -15,8 +15,10 @@ import DispatchPage from "./pages/DispatchPage";
 import HistoryPage from "./pages/HistoryPage";
 import AnalyticsPage from "./pages/AnalyticsPage";
 
-// Backend URL
-const BACKEND_URL = (process.env.REACT_APP_BACKEND_URL || window.location.origin).replace(/\/+$/, "");
+// Backend URL — falls back to same origin when REACT_APP_BACKEND_URL is not set.
+// For Vercel+Render split deployment, set REACT_APP_BACKEND_URL in Vercel env vars.
+const BACKEND_URL = (process.env.REACT_APP_BACKEND_URL || "").replace(/\/+$/, "");
+
 
 function MainAppShell() {
   const { userRole, isAuthenticated } = useAuth();
@@ -50,11 +52,12 @@ function MainAppShell() {
 
   // Keep-alive ping to prevent Render free-tier from sleeping
   useEffect(() => {
-    const ping = () => fetch(`${BACKEND_URL}/api/ping`).catch(() => {});
+    const backendUrl = (process.env.REACT_APP_BACKEND_URL || window.location.origin).replace(/\/+$/, "");
+    const ping = () => fetch(`${backendUrl}/api/ping`).catch(() => {});
     ping();
     const interval = setInterval(ping, 10 * 60 * 1000); // 10 minutes
     return () => clearInterval(interval);
-  }, []);
+  }, []); // URL is derived from build-time env var — stable for the app lifetime
 
   // Wizard navigation steps
   const baseSteps = [

@@ -38,7 +38,7 @@ export function AdminPanel({ backendUrl }) {
       const data = await request(`${backendUrl}/api/admin/clients`);
       setClientList(data.clients);
     } catch (err) {
-      logger.error("Failed to load clients", err.message);
+      console.error("Failed to load clients", err.message);
     } finally {
       setClientListLoading(false);
     }

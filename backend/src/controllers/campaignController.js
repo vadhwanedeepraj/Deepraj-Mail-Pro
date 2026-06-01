@@ -15,69 +15,107 @@ if (!fs.existsSync(ATTACHMENTS_DIR)) {
 
 /**
  * Handles SSE bulk email dispatch campaign or schedules it.
+ *
+ * ISSUE-12 Fix: DB client is now acquired and released within its own scope (quota
+ * check only). It is no longer held open during the entire SSE lifecycle.
+ *
+ * ISSUE-25 Fix: Uses fs.copyFileSync+unlinkSync instead of fs.renameSync to avoid
+ * EXDEV errors when multer writes to /tmp (tmpfs) and we move to /app/backend/attachments
+ * (overlayfs) — two different filesystems in Docker.
+ *
+ * ISSUE-26 Fix: Validates attachment filenames against path traversal attacks.
+ *
+ * ISSUE-34 Fix: Safe JSON.parse for recipients with proper error response.
  */
 async function sendBulk(req, res, next) {
   const { tenantId, role } = req.user;
   const { scheduleTime, ...bodyFields } = req.body;
   const uploadedFiles = req.files?.attachments || [];
 
-  const client = await pool.connect();
+  // ISSUE-34 Fix: Safe JSON parse — returns a clean 400 instead of leaking internals
+  let recipients;
   try {
-    const recipients = JSON.parse(req.body.recipients || "[]");
+    recipients = JSON.parse(req.body.recipients || "[]");
+    if (!Array.isArray(recipients)) throw new Error("Not an array");
+  } catch (_) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid recipients format — field must be a JSON array string"
+    });
+  }
 
+  try {
     // 1. Quota Verification (Skip for admin)
+    // ISSUE-12 Fix: Client is scoped tightly — acquired, used, and released immediately.
+    // It is no longer held across the entire SSE response lifecycle.
     if (role !== "admin") {
-      await client.query("BEGIN");
-      
-      const { rows } = await client.query(
-        `SELECT daily_quota, sent_today, last_sent_date
-         FROM users
-         WHERE tenant_id = $1 AND role = 'client'
-         FOR UPDATE`,
-        [tenantId]
-      );
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
 
-      if (rows.length === 0) {
-        await client.query("ROLLBACK");
-        return res.status(404).json({ success: false, message: "Client profile not found" });
+        const { rows } = await client.query(
+          `SELECT daily_quota, sent_today, last_sent_date
+           FROM users
+           WHERE tenant_id = $1 AND role = 'client'
+           FOR UPDATE`,
+          [tenantId]
+        );
+
+        if (rows.length === 0) {
+          await client.query("ROLLBACK");
+          return res.status(404).json({ success: false, message: "Client profile not found" });
+        }
+
+        const user = rows[0];
+        const todayStr = new Date().toISOString().slice(0, 10);
+        let sentToday = user.sent_today;
+
+        const userLastSentStr = user.last_sent_date instanceof Date
+          ? user.last_sent_date.toISOString().slice(0, 10)
+          : String(user.last_sent_date).slice(0, 10);
+
+        if (userLastSentStr !== todayStr) {
+          sentToday = 0;
+        }
+
+        if (sentToday + recipients.length > user.daily_quota) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({
+            success: false,
+            message: `Daily sending quota exceeded. You have sent ${sentToday}/${user.daily_quota} emails today. This campaign has ${recipients.length} recipients, exceeding your remaining quota.`
+          });
+        }
+
+        await client.query("COMMIT");
+      } catch (err) {
+        try { await client.query("ROLLBACK"); } catch (_) {}
+        throw err;
+      } finally {
+        // ISSUE-12 Fix: Released immediately — no longer leaked into SSE lifetime
+        client.release();
       }
-
-      const user = rows[0];
-      const todayStr = new Date().toISOString().slice(0, 10);
-      let sentToday = user.sent_today;
-
-      // Reset daily quota if last_sent_date is yesterday/older
-      const userLastSentStr = user.last_sent_date instanceof Date 
-        ? user.last_sent_date.toISOString().slice(0, 10) 
-        : String(user.last_sent_date).slice(0, 10);
-      
-      if (userLastSentStr !== todayStr) {
-        sentToday = 0;
-      }
-
-      if (sentToday + recipients.length > user.daily_quota) {
-        await client.query("ROLLBACK");
-        return res.status(400).json({
-          success: false,
-          message: `Daily sending quota exceeded. You have sent ${sentToday}/${user.daily_quota} emails today. This campaign has ${recipients.length} recipients, exceeding your remaining quota.`
-        });
-      }
-
-      await client.query("COMMIT");
     }
 
     // 2. Process and move uploaded attachments to permanent path
     const attachmentMap = {};
     for (const file of uploadedFiles) {
-      const originalName = file.originalname.replace(/\.pdf$/i, "").trim().toLowerCase();
+      // ISSUE-26 Fix: Strip directory components to prevent path traversal attacks
+      const safeName = path.basename(file.originalname);
+      const originalName = safeName.replace(/\.pdf$/i, "").trim().toLowerCase();
       const permPath = path.join(ATTACHMENTS_DIR, file.filename + ".pdf");
-      fs.renameSync(file.path, permPath);
+
+      // ISSUE-25 Fix: Use copyFileSync+unlinkSync instead of renameSync.
+      // renameSync fails with EXDEV when source (os.tmpdir() = /tmp = tmpfs) and
+      // destination (backend/attachments = overlayfs) are on different filesystems in Docker.
+      fs.copyFileSync(file.path, permPath);
+      try { fs.unlinkSync(file.path); } catch (_) {} // best-effort temp file cleanup
+
       attachmentMap[originalName] = permPath;
     }
 
     const campaignId = crypto.randomUUID();
     const payload = {
-      ...bodyFields,
+      ...bodyFields,  // includes recipients (JSON string), cc, bcc, subject, bodyWith, bodyWithout, rateLimit, vercelProxyUrl
       tenantId,
       attachments: attachmentMap,
       campaignId,
@@ -105,9 +143,7 @@ async function sendBulk(req, res, next) {
 
       // Keepalive ping (avoid Render proxy timeout)
       const keepAlive = setInterval(() => {
-        try {
-          res.write(": keepalive\n\n");
-        } catch (_) {}
+        try { res.write(": keepalive\n\n"); } catch (_) {}
       }, 20000);
 
       const cleanup = () => {
@@ -118,15 +154,11 @@ async function sendBulk(req, res, next) {
       };
 
       const onProgress = (data) => {
-        try {
-          res.write(`data: ${JSON.stringify(data)}\n\n`);
-        } catch (_) {}
+        try { res.write(`data: ${JSON.stringify(data)}\n\n`); } catch (_) {}
       };
 
       const onDone = (data) => {
-        try {
-          res.write(`data: ${JSON.stringify(data)}\n\n`);
-        } catch (_) {}
+        try { res.write(`data: ${JSON.stringify(data)}\n\n`); } catch (_) {}
         cleanup();
         res.end();
       };
@@ -152,12 +184,7 @@ async function sendBulk(req, res, next) {
       await emailQueue.add("send-campaign", payload);
     }
   } catch (err) {
-    if (role !== "admin") {
-      try { await client.query("ROLLBACK"); } catch (_) {}
-    }
     next(err);
-  } finally {
-    client.release();
   }
 }
 

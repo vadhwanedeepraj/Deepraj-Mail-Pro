@@ -153,14 +153,16 @@ async function deleteStored(req, res, next) {
 async function performTest({ email, password, testTo, vercelProxyUrl, res }) {
   const VERCEL_PROXY_URL = vercelProxyUrl || "https://email-proxy-one.vercel.app/api/send";
   
-  await sendEmailWithBypass({
-    vercelProxyUrl: VERCEL_PROXY_URL,
-    email,
-    password,
-    verifyOnly: !testTo
-  });
-
-  if (testTo) {
+  if (!testTo) {
+    // Only verify SMTP credentials without sending an email
+    await sendEmailWithBypass({
+      vercelProxyUrl: VERCEL_PROXY_URL,
+      email,
+      password,
+      verifyOnly: true
+    });
+  } else {
+    // Send actual test email to the specified recipient
     await sendEmailWithBypass({
       vercelProxyUrl: VERCEL_PROXY_URL,
       email,

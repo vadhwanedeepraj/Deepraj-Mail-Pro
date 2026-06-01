@@ -4,25 +4,34 @@ services:
     env: docker
     plan: free
     dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/ping
     envVars:
+      - key: PORT
+        value: "10000"               # Must match Render's injected PORT value
+      - key: NODE_ENV
+        value: production
       - key: JWT_SECRET
-        generateValue: true
+        generateValue: true          # Safe to auto-generate — only used for signing new tokens
       - key: ENCRYPTION_KEY
-        generateValue: true    # Render generates 32-char hex key
+        sync: false                  # ⚠️ CRITICAL: Set MANUALLY in dashboard, NEVER change after first deploy
+                                     # Generate once with: openssl rand -hex 32
+                                     # Changing this permanently corrupts all stored SMTP passwords
       - key: DATABASE_URL
         fromDatabase:
           name: deepraj-mail-pro-db
           property: connectionString
       - key: BACKEND_URL
-        sync: false            # Set manually in dashboard to backend service URL
+        sync: false                  # Set manually to your Render service URL (e.g. https://deepraj-mail-pro.onrender.com)
       - key: CORS_ORIGINS
-        sync: false            # Set manually to frontend Vercel origin (comma separated)
+        sync: false                  # Set manually to your Vercel frontend URL (e.g. https://your-app.vercel.app)
       - key: ADMIN_EMAIL
-        sync: false            # Set manually to default admin email
+        sync: false                  # Default admin account email
       - key: ADMIN_PASSWORD
-        sync: false            # Set manually to default admin password
-      - key: NODE_ENV
-        value: production
+        sync: false                  # Default admin password (min 8 chars). User will be forced to reset on first login.
+      - key: PROXY_SECRET
+        generateValue: true          # Shared secret between backend and Vercel proxy (auto-generated is fine here)
+      - key: REDIS_URL
+        sync: false                  # Optional: set if you add a Redis add-on. Leave blank to use in-memory fallback.
 
 databases:
   - name: deepraj-mail-pro-db

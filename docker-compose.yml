@@ -1,6 +1,32 @@
 version: '3.8'
 
 services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: edp_app
+    ports:
+      - "3001:3001"
+    environment:
+      PORT: "3001"
+      NODE_ENV: development
+      DATABASE_URL: "postgresql://postgres:password@db:5432/email_dispatcher"
+      REDIS_URL: "redis://redis:6379"
+      JWT_SECRET: "local-dev-changeme-64chars-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      ENCRYPTION_KEY: "local-dev-changeme-32chars123456"
+      ADMIN_EMAIL: "admin@example.com"
+      ADMIN_PASSWORD: "admin123456"
+      CORS_ORIGINS: "http://localhost:3000"
+      BACKEND_URL: "http://localhost:3001"
+    depends_on:
+      - db
+      - redis
+    restart: unless-stopped
+    volumes:
+      # Persist attachments between restarts
+      - attachments_data:/app/backend/attachments
+
   db:
     image: postgres:15-alpine
     container_name: edp_postgres
@@ -12,6 +38,7 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
 
   redis:
     image: redis:7-alpine
@@ -25,3 +52,4 @@ services:
 volumes:
   pgdata:
   redisdata:
+  attachments_data:

@@ -1,12 +1,24 @@
 "use strict";
 
+/**
+ * Email Service — routes sends through Vercel serverless proxy to bypass
+ * Render/cloud SMTP port firewall blocks (ports 465/587).
+ *
+ * ISSUE-29 Fix: Removed `node-fetch` dependency. Node 18+ provides a built-in
+ * global `fetch` that is API-compatible. No import needed.
+ *
+ * ISSUE-08 Fix: Sends X-Proxy-Secret header to authenticate with the Vercel proxy
+ * and prevent open relay abuse.
+ */
+
 const nodemailer = require("nodemailer");
-const fetch = require("node-fetch");
 const logger = require("../utils/logger");
+
+const PROXY_SECRET = process.env.PROXY_SECRET || "";
 
 /**
  * Sends an email, using Vercel SMTP firewall bypass proxy if specified.
- * Otherwise sends directly via Nodemailer.
+ * Otherwise sends directly via Nodemailer (requires BYPASS_PROXY_LOCALLY=true).
  */
 async function sendEmailWithBypass({
   vercelProxyUrl,
@@ -41,13 +53,20 @@ async function sendEmailWithBypass({
   try {
     if (useProxy) {
       logger.info("Routing email dispatch via Vercel Serverless Proxy", { to, proxy: effectiveProxyUrl });
+
+      // Use Node 18 built-in fetch (no node-fetch import needed)
       const response = await fetch(effectiveProxyUrl, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          // ISSUE-08 Fix: Authenticate with the proxy using shared secret
+          "X-Proxy-Secret": PROXY_SECRET,
+        },
         body: JSON.stringify({
           email, password, to, cc, bcc, subject, text, html, attachments, verifyOnly
         })
       });
+
       const responseText = await response.text();
       let json;
       try {
@@ -83,7 +102,7 @@ async function sendEmailWithBypass({
         html,
         attachments: attachments ? attachments.map(att => ({
           filename: att.filename,
-          content: Buffer.from(att.content, 'base64'),
+          content: Buffer.from(att.content, "base64"),
           contentType: "application/pdf"
         })) : []
       };
@@ -93,7 +112,7 @@ async function sendEmailWithBypass({
     }
   } catch (err) {
     let errorMsg = err.message;
-    if (!useProxy && (err.code === 'ETIMEDOUT' || err.code === 'ESOCKET' || err.message.includes('timeout') || err.message.includes('connect'))) {
+    if (!useProxy && (err.code === "ETIMEDOUT" || err.code === "ESOCKET" || err.message.includes("timeout") || err.message.includes("connect"))) {
       errorMsg += ". (Render free tier blocks SMTP ports 465/587. Please open the app via your Vercel domain to bypass this firewall dynamically!)";
     }
     throw new Error(errorMsg);

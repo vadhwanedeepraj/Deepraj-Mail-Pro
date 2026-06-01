@@ -1,5 +1,11 @@
 "use strict";
 
+// Load environment variables from local .env in development
+if (process.env.NODE_ENV !== "production") {
+  const path = require("path");
+  require("dotenv").config({ path: path.resolve(__dirname, "../../.env") });
+}
+
 /**
  * Environment variable validation.
  * Validates ALL required env vars at startup and throws with a clear

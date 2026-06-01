@@ -61,7 +61,7 @@ app.use(cors({
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
-// 2. Health check route
+// 2. Health check route (used by Render's healthCheckPath)
 app.get("/api/ping", (req, res) => res.json({ ok: true, ts: Date.now() }));
 
 // 3. Mount Routers
@@ -69,7 +69,10 @@ app.use("/api/auth", authRouter);
 app.use("/api/admin", adminRouter);
 app.use("/api/smtp", smtpRouter);
 app.use("/api", campaignsRouter); // mounts /api/send-bulk, /api/campaigns, /api/campaigns/:id
-app.use("/", trackingRouter); // mounts /api/track/open, /api/unsubscribe, /api/analytics
+
+// ISSUE-13 Fix: Mount tracking router at /api (not /) so routes match the URLs
+// built by campaignRunner.js: /api/track/open/..., /api/unsubscribe/..., /api/analytics
+app.use("/api", trackingRouter);
 
 // 4. Backward Compatibility Direct Mappings
 app.post("/api/test-smtp", apiLimiter, smtpController.testDirect);
@@ -92,7 +95,9 @@ if (fs.existsSync(buildPath)) {
 // 5. Centralized Error Handler (must be registered last)
 app.use(errorHandler);
 
-const PORT = process.env.PORT || 5000;
+// ISSUE-03/05 Fix: Use PORT from environment (Render injects this). Fall back to 3001 for local dev.
+// The old fallback of 5000 mismatched Render's expected port, causing health check failures.
+const PORT = parseInt(process.env.PORT || "3001", 10);
 
 /**
  * Starts the application server.
@@ -209,3 +214,26 @@ async function startServer() {
 }
 
 startServer();
+
+// ─── GRACEFUL SHUTDOWN ────────────────────────────────────────────────────────
+// ISSUE-15 Fix: On SIGTERM (Render deploys, container stops), mark any in-flight
+// campaigns as 'failed' so they don't stay permanently stuck as 'running' in the DB.
+// Render free tier restarts containers every 24h, so this is critical.
+
+async function gracefulShutdown(signal) {
+  logger.warn(`${signal} received — graceful shutdown initiated`);
+  try {
+    const result = await pool.query(
+      `UPDATE campaigns SET status = 'failed' WHERE status = 'running' RETURNING id`
+    );
+    if (result.rowCount > 0) {
+      logger.info(`Marked ${result.rowCount} in-flight campaign(s) as failed during shutdown`);
+    }
+  } catch (err) {
+    logger.error("Error during shutdown cleanup", { error: err.message });
+  }
+  process.exit(0);
+}
+
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT",  () => gracefulShutdown("SIGINT"));

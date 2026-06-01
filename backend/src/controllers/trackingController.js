@@ -4,6 +4,19 @@ const { pool } = require("../config/db");
 const logger = require("../utils/logger");
 
 /**
+ * Escapes HTML special characters to prevent XSS.
+ * Applied to any user-supplied data reflected in HTML responses.
+ */
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+/**
  * Tracks an open email event by returning a 1x1 transparent GIF.
  */
 async function trackOpen(req, res, next) {
@@ -59,14 +72,34 @@ async function unsubscribe(req, res, next) {
 
     logger.info("Recipient unsubscribed from tenant mailing list", { tenantId, email });
 
-    res.setHeader("Content-Type", "text/html");
-    return res.send(`
-      <div style="font-family:sans-serif; text-align:center; padding: 50px 20px;">
-        <h2 style="color: #4b5563;">Successfully Unsubscribed</h2>
-        <p style="color: #6b7280; font-size: 16px;">${email} has been removed from this sender's mailing list.</p>
-        <p style="color: #9ca3af; font-size: 14px; margin-top: 20px;">You will no longer receive campaigns from this tenant.</p>
-      </div>
-    `);
+    // ISSUE-10 Fix: Escape the email address to prevent reflected XSS.
+    // The raw email from the query string was previously interpolated directly into HTML.
+    const safeEmail = escapeHtml(email);
+
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    return res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Unsubscribed</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; text-align: center; padding: 50px 20px; background: #f9fafb; }
+    .card { background: #fff; border-radius: 12px; padding: 40px; max-width: 480px; margin: 0 auto; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    h2 { color: #111827; margin-bottom: 8px; }
+    p { color: #6b7280; font-size: 15px; margin: 6px 0; }
+    .email { color: #374151; font-weight: 500; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>&#10003; Successfully Unsubscribed</h2>
+    <p class="email">${safeEmail}</p>
+    <p>has been removed from this sender's mailing list.</p>
+    <p style="font-size:13px; margin-top:20px;">You will no longer receive campaigns from this sender.</p>
+  </div>
+</body>
+</html>`);
   } catch (err) {
     next(err);
   }

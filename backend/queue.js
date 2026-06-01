@@ -1,7 +1,7 @@
 const { Queue, Worker } = require("bullmq");
 const IORedis = require("ioredis");
 const EventEmitter = require("events");
-const logger = require("./logger");
+const logger = require("./src/utils/logger");
 
 // ─── REDIS CONFIG ─────────────────────────────────────────────────────────────
 // Render provides REDIS_URL as a full connection string.

@@ -1,60 +1,16 @@
-const winston = require("winston");
-const path = require("path");
-const fs = require("fs");
-
-// Ensure logs directory exists
-const LOGS_DIR = path.join(__dirname, "logs");
-if (!fs.existsSync(LOGS_DIR)) {
-  fs.mkdirSync(LOGS_DIR);
-}
-
-// Custom format for clean development console logs
-const devFormat = winston.format.combine(
-  winston.format.colorize(),
-  winston.format.timestamp({ format: "YYYY-MM-DD HH:mm:ss" }),
-  winston.format.errors({ stack: true }),
-  winston.format.printf(({ timestamp, level, message, stack, ...meta }) => {
-    const metaString = Object.keys(meta).length ? ` | ${JSON.stringify(meta)}` : "";
-    return `[${timestamp}] ${level}: ${message}${stack ? `\n${stack}` : ""}${metaString}`;
-  })
-);
-
-// Production JSON format (ideal for log aggregators like Datadog, ELK, Grafana Loki)
-const prodFormat = winston.format.combine(
-  winston.format.timestamp(),
-  winston.format.errors({ stack: true }),
-  winston.format.json()
-);
-
-const isProduction = process.env.NODE_ENV === "production";
-
-const logger = winston.createLogger({
-  level: process.env.LOG_LEVEL || "info",
-  format: isProduction ? prodFormat : devFormat,
-  transports: [
-    // Output all logs to console
-    new winston.transports.Console(),
-    
-    // Write all errors to error.log
-    new winston.transports.File({ 
-      filename: path.join(LOGS_DIR, "error.log"), 
-      level: "error",
-      maxsize: 5242880, // 5MB limit
-      maxFiles: 5
-    }),
-    
-    // Write all operational logs to combined.log
-    new winston.transports.File({ 
-      filename: path.join(LOGS_DIR, "combined.log"),
-      maxsize: 10485760, // 10MB limit
-      maxFiles: 5
-    })
-  ]
-});
-
-// Export helper to add custom context fields easily
-logger.withContext = (tenantId, campaignId) => {
-  return logger.child({ tenantId, campaignId });
-};
-
-module.exports = logger;
+/**
+ * DEPRECATED — This file is a backward-compatibility shim.
+ *
+ * The canonical logger is at: backend/src/utils/logger.js
+ *
+ * This root-level file previously caused a startup crash on fresh Docker/Render
+ * deployments because it called fs.mkdirSync() without { recursive: true },
+ * throwing ENOENT if the logs/ directory didn't exist.
+ *
+ * ISSUE-01 Fix: queue.js now imports from ./src/utils/logger directly.
+ * This file is kept only to avoid breaking any external tools that might
+ * reference it. It simply re-exports the correct logger.
+ *
+ * TODO: Delete this file once confirmed nothing else imports it.
+ */
+module.exports = require("./src/utils/logger");

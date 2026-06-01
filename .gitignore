@@ -41,5 +41,6 @@ backend/unsubscribes.json
 # Uploaded attachments (runtime)
 backend/attachments/
 
-# Package locks (keep package-lock.json in backend/frontend but not root)
-package-lock.json
+# Package locks — commit both backend and frontend locks for reproducible CI builds
+# The root package-lock.json is excluded (workspaces don't need it)
+/package-lock.json

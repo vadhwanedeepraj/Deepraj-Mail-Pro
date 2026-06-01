@@ -7,7 +7,7 @@ const EyeIcon = ({ show }) => show
   : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>;
 
 export default function Auth({ onLogin }) {
-  const [view, setView] = useState('login'); // 'login' | 'forgot' | 'force-reset'
+  const [view, setView] = useState('login'); // 'login' | 'force-reset'
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -66,16 +66,14 @@ export default function Auth({ onLogin }) {
           reset(true); // keep email for display
           setSuccessMsg('Welcome! Please set a new secure password to continue.');
         } else {
-          localStorage.setItem('edp_token', data.token);
-          localStorage.setItem('edp_user', data.email);
-          localStorage.setItem('edp_role', data.role);
+          // ISSUE-33 Fix: Delegate ALL localStorage management to the AuthContext (via onLogin).
+          // Previously Auth.js wrote to localStorage directly AND called onLogin() which also
+          // wrote to localStorage — causing double writes.
           onLogin(data.token, data.email, data.role);
         }
       } else if (view === 'force-reset') {
         // Password reset done — issue final token and log in
-        localStorage.setItem('edp_token', data.token);
-        localStorage.setItem('edp_user', email || data.email);
-        localStorage.setItem('edp_role', data.role);
+        // ISSUE-33 Fix: Same as above — only call onLogin, don't touch localStorage here.
         onLogin(data.token, email || data.email, data.role);
       }
     } catch (err) {
@@ -159,10 +157,10 @@ export default function Auth({ onLogin }) {
                 <div className="mt-2 flex gap-1">
                   {[...Array(4)].map((_, i) => (
                     <div key={i} className={`h-1 flex-1 rounded-full transition-colors ${
-                      password.length >= 8 && i === 0 ? 'bg-red-400' :
-                      password.length >= 10 && i <= 1 ? 'bg-amber-400' :
+                      password.length >= 14 && i <= 3 ? 'bg-green-500' :
                       password.length >= 12 && i <= 2 ? 'bg-blue-400' :
-                      password.length >= 14 && i <= 3 ? 'bg-green-500' : 'bg-gray-200'
+                      password.length >= 10 && i <= 1 ? 'bg-amber-400' :
+                      password.length >= 8  && i === 0 ? 'bg-red-400' : 'bg-gray-200'
                     }`} />
                   ))}
                 </div>
