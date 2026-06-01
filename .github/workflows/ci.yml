@@ -19,9 +19,7 @@ jobs:
       with:
         node-version: '18'
         cache: 'npm'
-        cache-dependency-path: |
-          backend/package-lock.json
-          frontend/package-lock.json
+        cache-dependency-path: backend/package-lock.json
 
     # ── Backend ──────────────────────────────────────────────────────────────
     - name: Install Backend Dependencies
@@ -37,7 +35,7 @@ jobs:
 
     # ── Frontend ─────────────────────────────────────────────────────────────
     - name: Install Frontend Dependencies
-      run: cd frontend && npm ci --legacy-peer-deps
+      run: cd frontend && npm install --legacy-peer-deps
 
     - name: Security Audit (Frontend)
       # ISSUE-22 Fix: Flag high/critical CVEs in frontend dependencies
