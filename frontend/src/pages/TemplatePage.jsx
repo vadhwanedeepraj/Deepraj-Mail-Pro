@@ -27,8 +27,183 @@ export function TemplatePage({
   const [showVariables, setShowVariables] = useState(false);
   const dropdownRef = useRef(null);
 
+  const [showCTA, setShowCTA] = useState(false);
+  const [btnText, setBtnText] = useState("Click Here");
+  const [btnLink, setBtnLink] = useState("https://");
+  const [btnStyle, setBtnStyle] = useState("blue");
+
+  const [showGallery, setShowGallery] = useState(false);
+  const [showSignature, setShowSignature] = useState(false);
+
+  // Load signature details from localStorage with robust defaults
+  const [sigName, setSigName] = useState(() => localStorage.getItem("dm_sig_name") || "");
+  const [sigTitle, setSigTitle] = useState(() => localStorage.getItem("dm_sig_title") || "");
+  const [sigCompany, setSigCompany] = useState(() => localStorage.getItem("dm_sig_company") || "");
+  const [sigPhone, setSigPhone] = useState(() => localStorage.getItem("dm_sig_phone") || "");
+  const [sigEmail, setSigEmail] = useState(() => localStorage.getItem("dm_sig_email") || "");
+  const [sigWebsite, setSigWebsite] = useState(() => localStorage.getItem("dm_sig_website") || "");
+  const [sigStyle, setSigStyle] = useState(() => localStorage.getItem("dm_sig_style") || "minimalist");
+
   const quillWithRef = useRef(null);
   const quillWithoutRef = useRef(null);
+
+  // Dynamic signature responsive HTML generation
+  const minimalistSig = `
+    <table cellpadding="0" cellspacing="0" border="0" style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;font-size:13px;color:#334155;margin-top:20px;border-top:1px solid #cbd5e1;padding-top:12px;width:100%;">
+      <tr>
+        <td style="font-weight:bold;font-size:15px;color:#0f172a;">${sigName || "Your Name"}</td>
+      </tr>
+      <tr>
+        <td style="color:#64748b;font-size:12px;padding-top:2px;">${sigTitle || "Your Title"}${sigCompany ? ` | ${sigCompany}` : ""}</td>
+      </tr>
+      <tr>
+        <td style="color:#64748b;font-size:12px;padding-top:4px;">
+          ${sigPhone ? `T: ${sigPhone} &bull; ` : ""}${sigEmail ? `E: ${sigEmail} &bull; ` : ""}${sigWebsite ? `W: <a href="${sigWebsite.startsWith("http") ? sigWebsite : "https://" + sigWebsite}" style="color:#2563eb;text-decoration:none;">${sigWebsite}</a>` : ""}
+        </td>
+      </tr>
+    </table>
+  `;
+
+  const corporateSig = `
+    <table cellpadding="0" cellspacing="0" border="0" style="font-family:sans-serif;font-size:12px;color:#334155;margin-top:20px;width:100%;max-width:500px;">
+      <tr>
+        <td style="width:3px;background-color:#2563eb;border-radius:2px;" rowspan="3">&nbsp;</td>
+        <td style="padding-left:12px;font-weight:bold;font-size:14px;color:#1e293b;">${sigName || "Your Name"}</td>
+      </tr>
+      <tr>
+        <td style="padding-left:12px;color:#475569;font-style:italic;padding-top:2px;">${sigTitle || "Your Title"}${sigCompany ? ` &mdash; ${sigCompany}` : ""}</td>
+      </tr>
+      <tr>
+        <td style="padding-left:12px;color:#64748b;padding-top:4px;">
+          ${sigPhone ? `<strong>T:</strong> ${sigPhone} &nbsp;|&nbsp; ` : ""}${sigEmail ? `<strong>E:</strong> ${sigEmail} &nbsp;|&nbsp; ` : ""}${sigWebsite ? `<strong>W:</strong> <a href="${sigWebsite.startsWith("http") ? sigWebsite : "https://" + sigWebsite}" style="color:#2563eb;text-decoration:none;">${sigWebsite}</a>` : ""}
+        </td>
+      </tr>
+    </table>
+  `;
+
+  const creativeSig = `
+    <table cellpadding="0" cellspacing="0" border="0" style="font-family:Georgia,serif;font-size:13px;color:#18181b;margin-top:20px;border-top:2px solid #7c3aed;padding-top:10px;width:100%;">
+      <tr>
+        <td style="font-weight:bold;font-size:16px;color:#7c3aed;font-style:italic;">${sigName || "Your Name"}</td>
+      </tr>
+      <tr>
+        <td style="color:#d97706;font-size:11px;font-weight:600;letter-spacing:0.5px;text-transform:uppercase;padding-top:2px;font-family:sans-serif;">${sigTitle || "Your Title"}</td>
+      </tr>
+      <tr>
+        <td style="color:#71717a;font-size:12px;padding-top:4px;font-family:sans-serif;">
+          ${sigCompany ? `<strong>${sigCompany}</strong> &bull; ` : ""}${sigPhone ? `${sigPhone} &bull; ` : ""}${sigWebsite ? `<a href="${sigWebsite.startsWith("http") ? sigWebsite : "https://" + sigWebsite}" style="color:#7c3aed;text-decoration:none;">${sigWebsite}</a>` : ""}
+        </td>
+      </tr>
+    </table>
+  `;
+
+  // Autoload pre-designed responsive templates
+  const newsletterTemplate = `
+<div style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;max-width:600px;margin:0 auto;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;box-shadow:0 4px 6px -1px rgba(0,0,0,0.05);">
+  <div style="background:linear-gradient(135deg, #2563eb 0%, #7c3aed 100%);padding:30px;text-align:center;">
+    <h1 style="color:#ffffff;margin:0;font-size:24px;font-weight:800;letter-spacing:-0.5px;">Product Spotlight 🚀</h1>
+    <p style="color:#dbeafe;margin:5px 0 0 0;font-size:14px;">Exciting new features built just for you</p>
+  </div>
+  <div style="padding:25px;background-color:#ffffff;color:#334155;line-height:1.6;font-size:14px;">
+    <p style="margin-top:0;">Dear <strong>{{ Name }}</strong>,</p>
+    <p>We are thrilled to share some powerful updates designed to supercharge your workflow and save you hours of manual task tracking.</p>
+    
+    <div style="background-color:#f8fafc;border:1px solid #f1f5f9;border-radius:12px;padding:16px;margin:20px 0;">
+      <h3 style="margin-top:0;color:#0f172a;font-size:15px;">🌟 Core Upgrades</h3>
+      <ul style="margin:0;padding-left:20px;color:#475569;">
+        <li><strong>Dynamic SMTP Rotation:</strong> Maximize deliverability instantly.</li>
+        <li><strong>Real-time Progress:</strong> Live sending state with zero data loss.</li>
+        <li><strong>Interactive CTA Builder:</strong> Create responsive visual buttons in clicks.</li>
+      </ul>
+    </div>
+
+    <p style="margin-bottom:0;text-align:center;">
+      <a href="https://example.com" style="display:inline-block;background-color:#2563eb;color:#ffffff;font-weight:bold;padding:12px 24px;border-radius:8px;text-decoration:none;font-size:13px;box-shadow:0 4px 6px rgba(37,99,235,0.2);">Explore All Features</a>
+    </p>
+  </div>
+</div>
+`;
+
+  const proposalTemplate = `
+<div style="font-family:Georgia,serif;max-width:550px;margin:20px auto;color:#18181b;line-height:1.7;font-size:14px;padding:30px;border-top:4px solid #7c3aed;background-color:#ffffff;box-shadow:0 1px 3px rgba(0,0,0,0.05);">
+  <h2 style="font-family:sans-serif;font-weight:800;color:#09090b;font-size:20px;margin-top:0;letter-spacing:-0.5px;">Business Collaboration Proposal</h2>
+  <p style="color:#71717a;font-size:12px;font-family:sans-serif;text-transform:uppercase;letter-spacing:1px;margin-bottom:25px;">Confidential &middot; Prepared for {{ Company }}</p>
+  
+  <p>Dear <strong>{{ Name }}</strong>,</p>
+  
+  <p>I hope this letter finds you well.</p>
+  
+  <p>Following up on our recent conversation, I am writing to submit our formal partnership proposal. We have analyzed {{ Company }}'s growth targets and designed a customized integration pathway that aligns perfectly with your operations.</p>
+  
+  <blockquote style="border-left:3px solid #7c3aed;margin:20px 0;padding-left:15px;color:#52525b;font-style:italic;">
+    "Our ultimate objective is to drive client engagement upwards by 40% while trimming redundancies."
+  </blockquote>
+  
+  <p>We would love to schedule a brief 10-minute demonstration call next Tuesday to review the strategic metrics and answer any operational questions you may have.</p>
+  
+  <p>Please click the button below to secure a calendar slot that fits your schedule.</p>
+  
+  <p style="text-align:center;margin-top:25px;">
+    <a href="https://calendly.com" style="display:inline-block;background-color:#7c3aed;color:#ffffff;font-family:sans-serif;font-weight:bold;padding:12px 28px;border-radius:6px;text-decoration:none;font-size:13px;">Book Calibration Call</a>
+  </p>
+</div>
+`;
+
+  const invoiceTemplate = `
+<div style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;max-width:600px;margin:10px auto;border:1px solid #e4e4e7;border-radius:12px;overflow:hidden;background-color:#ffffff;color:#27272a;font-size:14px;box-shadow:0 1px 3px rgba(0,0,0,0.02);">
+  <div style="background-color:#f4f4f5;padding:20px;border-bottom:1px solid #e4e4e7;display:flex;justify-content:space-between;align-items:center;">
+    <div>
+      <h3 style="margin:0;font-size:16px;font-weight:700;">Account Statement</h3>
+      <p style="margin:2px 0 0 0;font-size:11px;color:#71717a;">Statement ID: {{ Invoice_Id }}</p>
+    </div>
+  </div>
+  <div style="padding:20px;line-height:1.5;">
+    <p style="margin-top:0;">Dear <strong>{{ Name }}</strong>,</p>
+    <p>Thank you for your business. Here is the summary statement of services rendered for your account this month:</p>
+    
+    <table cellpadding="0" cellspacing="0" border="0" style="width:100%;margin:20px 0;border-collapse:collapse;font-size:12px;">
+      <thead>
+        <tr style="background-color:#f4f4f5;color:#52525b;font-weight:bold;border-bottom:1px solid #e4e4e7;">
+          <th style="padding:8px 10px;text-align:left;">Service Description</th>
+          <th style="padding:8px 10px;text-align:right;width:100px;">Hours</th>
+          <th style="padding:8px 10px;text-align:right;width:120px;">Amount Due</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="border-bottom:1px solid #f4f4f5;">
+          <td style="padding:10px;color:#18181b;">Enterprise Core Subscription Development</td>
+          <td style="padding:10px;text-align:right;color:#71717a;">16.5 hrs</td>
+          <td style="padding:10px;text-align:right;font-weight:600;color:#18181b;">$2,475.00</td>
+        </tr>
+        <tr style="border-bottom:1px solid #f4f4f5;">
+          <td style="padding:10px;color:#18181b;">SMTP Proxy Server Configuration</td>
+          <td style="padding:10px;text-align:right;color:#71717a;">4.0 hrs</td>
+          <td style="padding:10px;text-align:right;font-weight:600;color:#18181b;">$600.00</td>
+        </tr>
+        <tr style="background-color:#fafafa;font-weight:bold;border-top:1px solid #e4e4e7;">
+          <td style="padding:10px;color:#18181b;" colspan="2">Total Outstanding Balance</td>
+          <td style="padding:10px;text-align:right;color:#2563eb;font-size:13px;">$3,075.00</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p style="font-size:12px;color:#71717a;text-align:center;margin-top:25px;">
+      If you have any billing inquiries, please contact <a href="mailto:billing@example.com" style="color:#2563eb;text-decoration:none;">billing@example.com</a>. Thank you!
+    </p>
+  </div>
+</div>
+`;
+
+  // Persist signature inputs to localStorage automatically
+  useEffect(() => {
+    localStorage.setItem("dm_sig_name", sigName);
+    localStorage.setItem("dm_sig_title", sigTitle);
+    localStorage.setItem("dm_sig_company", sigCompany);
+    localStorage.setItem("dm_sig_phone", sigPhone);
+    localStorage.setItem("dm_sig_email", sigEmail);
+    localStorage.setItem("dm_sig_website", sigWebsite);
+    localStorage.setItem("dm_sig_style", sigStyle);
+  }, [sigName, sigTitle, sigCompany, sigPhone, sigEmail, sigWebsite, sigStyle]);
 
   const previewRow = data?.[previewIndex] ?? {};
   const previewBody = renderTemplate(activeTab === "with" ? bodyWith : bodyWithout, previewRow);
@@ -55,6 +230,56 @@ export function TemplatePage({
       const textToInsert = `{{ ${col} }}`;
       quillEditor.insertText(range.index, textToInsert);
       quillEditor.setSelection(range.index + textToInsert.length);
+    }
+  };
+
+  const handleInsertButton = (bText, bLink, bStyle) => {
+    const quillEditor = activeTab === "with" 
+      ? quillWithRef.current?.getEditor() 
+      : quillWithoutRef.current?.getEditor();
+
+    if (quillEditor) {
+      const range = quillEditor.getSelection(true);
+      const colors = {
+        blue: "#2563eb",
+        green: "#10b981",
+        violet: "#7c3aed",
+        dark: "#1e293b"
+      };
+      const bg = colors[bStyle] || "#2563eb";
+      // Bulletproof HTML email button
+      const buttonHtml = `<p><a href="${bLink}" style="display:inline-block;background-color:${bg};color:#ffffff;font-family:sans-serif;font-size:14px;font-weight:bold;line-height:44px;text-align:center;text-decoration:none;width:200px;border-radius:10px;margin-top:10px;margin-bottom:10px;">${bText}</a></p>`;
+      
+      quillEditor.clipboard.dangerouslyPasteHTML(range.index, buttonHtml);
+      quillEditor.setSelection(range.index + buttonHtml.length);
+    }
+  };
+
+  const handleInsertSignature = (style) => {
+    const quillEditor = activeTab === "with" 
+      ? quillWithRef.current?.getEditor() 
+      : quillWithoutRef.current?.getEditor();
+
+    if (quillEditor) {
+      const range = quillEditor.getSelection(true);
+      let sigHtml = "";
+      if (style === "minimalist") sigHtml = minimalistSig;
+      else if (style === "corporate") sigHtml = corporateSig;
+      else if (style === "creative") sigHtml = creativeSig;
+
+      quillEditor.clipboard.dangerouslyPasteHTML(range.index, sigHtml);
+      quillEditor.setSelection(range.index + sigHtml.length);
+    }
+  };
+
+  const handleLoadTemplate = (tplHtml) => {
+    const confirm = window.confirm("Are you sure you want to load this template? It will OVERWRITE all current email content in the editor.");
+    if (!confirm) return;
+
+    if (activeTab === "with") {
+      setBodyWith(tplHtml);
+    } else {
+      setBodyWithout(tplHtml);
     }
   };
 
@@ -156,6 +381,307 @@ export function TemplatePage({
                   value={subject}
                   onChange={(e) => setSubject(e.target.value)}
                 />
+              </div>
+
+              {/* CTA Button Builder Row */}
+              <div className="bg-slate-50/40 px-4 py-2 border-b border-gray-100 text-sm">
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-400 w-16 flex-shrink-0 font-medium">Add Button:</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowCTA(!showCTA)}
+                    className="text-xs font-bold text-blue-600 hover:text-blue-700 hover:underline flex items-center gap-1"
+                  >
+                    <Icon name="zap" size={13} /> {showCTA ? "Hide CTA Builder" : "Create Call-to-Action Button"}
+                  </button>
+                </div>
+                {showCTA && (
+                  <div className="mt-3 p-4 bg-white border border-gray-200 rounded-2xl space-y-3.5 animate-fade-in shadow-sm">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Button Text</label>
+                        <input
+                          type="text"
+                          className="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs bg-slate-50 focus:bg-white transition-all text-gray-800"
+                          value={btnText}
+                          onChange={(e) => setBtnText(e.target.value)}
+                          placeholder="e.g. Download Document"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Button Theme</label>
+                        <select
+                          className="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs bg-slate-50 focus:bg-white transition-all text-gray-800 font-semibold"
+                          value={btnStyle}
+                          onChange={(e) => setBtnStyle(e.target.value)}
+                        >
+                          <option value="blue">Royal Blue</option>
+                          <option value="green">Forest Green</option>
+                          <option value="violet">Sunset Violet</option>
+                          <option value="dark">Deep Charcoal</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Button Link / URL</label>
+                      <input
+                        type="text"
+                        className="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs bg-slate-50 focus:bg-white transition-all text-gray-800 font-mono"
+                        value={btnLink}
+                        onChange={(e) => setBtnLink(e.target.value)}
+                        placeholder="e.g. {{ Document_Url }} or https://..."
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleInsertButton(btnText, btnLink, btnStyle);
+                        setShowCTA(false);
+                      }}
+                      className="px-3.5 py-2 bg-gradient-to-r from-blue-600 to-violet-600 text-white rounded-xl text-xs font-bold hover:from-blue-700 hover:to-violet-700 transition-all w-full flex items-center justify-center gap-1.5 shadow-md shadow-blue-100"
+                    >
+                      <Icon name="plus" size={13} /> Insert CTA Button to Editor
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Template Gallery Row */}
+              <div className="bg-slate-50/40 px-4 py-2 border-b border-gray-100 text-sm">
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-400 w-16 flex-shrink-0 font-medium">Layouts:</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowGallery(!showGallery);
+                      setShowSignature(false);
+                      setShowCTA(false);
+                    }}
+                    className="text-xs font-bold text-violet-600 hover:text-violet-700 hover:underline flex items-center gap-1"
+                  >
+                    <Icon name="template" size={13} className="text-violet-600" /> {showGallery ? "Hide Layouts Gallery" : "Select Pre-designed Template Layout"}
+                  </button>
+                </div>
+                {showGallery && (
+                  <div className="mt-3 p-4 bg-white border border-gray-200 rounded-2xl space-y-4 animate-fade-in shadow-sm">
+                    <div className="px-1">
+                      <h4 className="text-xs font-bold text-gray-700 uppercase tracking-wider">Load Premium Template Layouts</h4>
+                      <p className="text-[11px] text-gray-400 mt-0.5">Select a layout below to instantly populate your active editor with responsive HTML designs.</p>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      {/* Card 1: Newsletter */}
+                      <div className="border border-gray-100 rounded-2xl overflow-hidden hover:border-violet-300 hover:shadow-md hover:scale-[1.02] transition-all flex flex-col justify-between bg-slate-50/20 group">
+                        <div className="h-20 bg-gradient-to-tr from-blue-500 to-violet-500 flex items-center justify-center p-3 text-center">
+                          <span className="text-white font-extrabold text-[11px] tracking-tight drop-shadow-sm">Product Spotlight 🚀</span>
+                        </div>
+                        <div className="p-3 flex-grow flex flex-col justify-between">
+                          <div className="mb-3">
+                            <h5 className="text-xs font-bold text-gray-800">Modern Newsletter</h5>
+                            <p className="text-[10px] text-gray-400 mt-1">Stunning top banner, clean features list, centered call-to-action button.</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleLoadTemplate(newsletterTemplate);
+                              setShowGallery(false);
+                            }}
+                            className="w-full py-1.5 bg-violet-50 text-violet-700 font-bold rounded-xl text-[10px] hover:bg-violet-600 hover:text-white transition-all border border-violet-100 shadow-sm"
+                          >
+                            Apply Layout
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Card 2: Corporate Proposal */}
+                      <div className="border border-gray-100 rounded-2xl overflow-hidden hover:border-violet-300 hover:shadow-md hover:scale-[1.02] transition-all flex flex-col justify-between bg-slate-50/20 group">
+                        <div className="h-20 bg-white border-b border-gray-100 flex items-center justify-center p-3 text-center">
+                          <span className="text-gray-800 font-serif font-extrabold text-[12px] tracking-tight border-t-2 border-violet-600 pt-1">Formal Proposal 📄</span>
+                        </div>
+                        <div className="p-3 flex-grow flex flex-col justify-between">
+                          <div className="mb-3">
+                            <h5 className="text-xs font-bold text-gray-800">Corporate Proposal</h5>
+                            <p className="text-[10px] text-gray-400 mt-1">Georgia serif elegance, formal letter headers, styled blockquotes, and link slots.</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleLoadTemplate(proposalTemplate);
+                              setShowGallery(false);
+                            }}
+                            className="w-full py-1.5 bg-violet-50 text-violet-700 font-bold rounded-xl text-[10px] hover:bg-violet-600 hover:text-white transition-all border border-violet-100 shadow-sm"
+                          >
+                            Apply Layout
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Card 3: Detailed Invoice */}
+                      <div className="border border-gray-100 rounded-2xl overflow-hidden hover:border-violet-300 hover:shadow-md hover:scale-[1.02] transition-all flex flex-col justify-between bg-slate-50/20 group">
+                        <div className="h-20 bg-slate-100 border-b border-gray-200 flex items-center justify-center p-3 text-center">
+                          <span className="text-gray-500 font-mono text-[10px] uppercase font-bold tracking-widest border border-dashed border-gray-300 px-2 py-1 rounded">Statement Table 📊</span>
+                        </div>
+                        <div className="p-3 flex-grow flex flex-col justify-between">
+                          <div className="mb-3">
+                            <h5 className="text-xs font-bold text-gray-800">Detailed Statement</h5>
+                            <p className="text-[10px] text-gray-400 mt-1">Structured accounting template with styled invoices, totals, and tabular amounts.</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleLoadTemplate(invoiceTemplate);
+                              setShowGallery(false);
+                            }}
+                            className="w-full py-1.5 bg-violet-50 text-violet-700 font-bold rounded-xl text-[10px] hover:bg-violet-600 hover:text-white transition-all border border-violet-100 shadow-sm"
+                          >
+                            Apply Layout
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Signature Builder Row */}
+              <div className="bg-slate-50/40 px-4 py-2 border-b border-gray-100 text-sm">
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-400 w-16 flex-shrink-0 font-medium">Signature:</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowSignature(!showSignature);
+                      setShowGallery(false);
+                      setShowCTA(false);
+                    }}
+                    className="text-xs font-bold text-emerald-600 hover:text-emerald-700 hover:underline flex items-center gap-1"
+                  >
+                    <Icon name="settings" size={13} className="text-emerald-600" /> {showSignature ? "Hide Signature Builder" : "Design Visual Email Signature"}
+                  </button>
+                </div>
+                {showSignature && (
+                  <div className="mt-3 p-4 bg-white border border-gray-200 rounded-2xl space-y-4 animate-fade-in shadow-sm">
+                    <div className="px-1">
+                      <h4 className="text-xs font-bold text-gray-700 uppercase tracking-wider">Visual Signature Designer</h4>
+                      <p className="text-[11px] text-gray-400 mt-0.5">Customize your digital business signature card and insert it directly into your email body.</p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-12 gap-5">
+                      {/* Editor Fields */}
+                      <div className="md:col-span-6 space-y-3">
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Full Name</label>
+                            <input
+                              type="text"
+                              className="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs bg-slate-50 focus:bg-white transition-all text-gray-800 font-semibold"
+                              value={sigName}
+                              onChange={(e) => setSigName(e.target.value)}
+                              placeholder="e.g. Deepraj Vadhwane"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Job Title</label>
+                            <input
+                              type="text"
+                              className="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs bg-slate-50 focus:bg-white transition-all text-gray-800"
+                              value={sigTitle}
+                              onChange={(e) => setSigTitle(e.target.value)}
+                              placeholder="e.g. Lead Developer"
+                            />
+                          </div>
+                        </div>
+                        
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Company</label>
+                            <input
+                              type="text"
+                              className="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs bg-slate-50 focus:bg-white transition-all text-gray-800"
+                              value={sigCompany}
+                              onChange={(e) => setSigCompany(e.target.value)}
+                              placeholder="e.g. Deepraj Tech"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Phone Number</label>
+                            <input
+                              type="text"
+                              className="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs bg-slate-50 focus:bg-white transition-all text-gray-800"
+                              value={sigPhone}
+                              onChange={(e) => setSigPhone(e.target.value)}
+                              placeholder="e.g. +91 98765 43210"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Business Email</label>
+                            <input
+                              type="text"
+                              className="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs bg-slate-50 focus:bg-white transition-all text-gray-800"
+                              value={sigEmail}
+                              onChange={(e) => setSigEmail(e.target.value)}
+                              placeholder="e.g. deepraj@tech.com"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Website URL</label>
+                            <input
+                              type="text"
+                              className="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs bg-slate-50 focus:bg-white transition-all text-gray-800"
+                              value={sigWebsite}
+                              onChange={(e) => setSigWebsite(e.target.value)}
+                              placeholder="e.g. deeprajtech.com"
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Signature Theme Style</label>
+                          <select
+                            className="w-full px-3 py-2 border border-gray-200 rounded-xl text-xs bg-slate-50 focus:bg-white transition-all text-gray-800 font-semibold"
+                            value={sigStyle}
+                            onChange={(e) => setSigStyle(e.target.value)}
+                          >
+                            <option value="minimalist">Modern Minimalist (Clean Line)</option>
+                            <option value="corporate">Classic Corporate (Blue Left Bar)</option>
+                            <option value="creative">Creative Sunset (Violet Serif Top-bar)</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Real-time Visual Preview Panel */}
+                      <div className="md:col-span-6 flex flex-col justify-between border border-gray-100 rounded-2xl p-4 bg-slate-50/50">
+                        <div>
+                          <span className="text-[10px] bg-emerald-50 text-emerald-700 font-bold px-2 py-0.5 rounded border border-emerald-100 tracking-wider">
+                            LIVE SIGNATURE PREVIEW
+                          </span>
+                          <div className="mt-4 p-3 bg-white border border-gray-200 rounded-xl min-h-[110px] flex items-center justify-center">
+                            <div
+                              className="w-full"
+                              dangerouslySetInnerHTML={{
+                                __html: sigStyle === "minimalist" ? minimalistSig : sigStyle === "corporate" ? corporateSig : creativeSig
+                              }}
+                            />
+                          </div>
+                        </div>
+                        
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleInsertSignature(sigStyle);
+                            setShowSignature(false);
+                          }}
+                          className="mt-4 px-3.5 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-xl text-xs font-bold hover:from-emerald-700 hover:to-teal-700 transition-all w-full flex items-center justify-center gap-1.5 shadow-md shadow-emerald-100"
+                        >
+                          <Icon name="plus" size={13} /> Insert This Signature to Editor
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 

@@ -132,6 +132,7 @@ export function DispatchPage({
       const decoder = new TextDecoder();
       let buffer = "";
       let hasFinished = false;
+      const localLog = [];
 
       while (true) {
         const { done, value } = await reader.read();
@@ -147,7 +148,8 @@ export function DispatchPage({
               if (evt.index !== undefined && evt.total !== undefined) {
                 setSendProgress(Math.round(((evt.index + 1) / evt.total) * 100));
               }
-              setSendLog((prev) => [...prev, evt]);
+              localLog.push(evt);
+              setSendLog([...localLog]);
               
               // Handle mid-stream campaign execution errors
               if (evt.status === "error" && (!evt.to || evt.to === "—")) {
@@ -156,7 +158,7 @@ export function DispatchPage({
                 hasFinished = true;
               }
             } else if (evt.type === "done") {
-              setSendResults(evt.results || []);
+              setSendResults(localLog);
               setSending(false);
               showAlert("Success", "Campaign dispatch successfully completed!", "success");
               hasFinished = true;
@@ -167,6 +169,7 @@ export function DispatchPage({
 
       if (!hasFinished) {
         setSending(false);
+        setSendResults(localLog);
       }
     } catch (err) {
       setSendLog((prev) => [...prev, { status: "error", to: "—", reason: String(err.message || err) }]);

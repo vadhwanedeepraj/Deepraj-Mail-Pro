@@ -111,6 +111,10 @@ async function runCampaign(payload, sendEvent = () => {}) {
          VALUES ($1, $2, $3, 'invalid', NULL, 'Bad email format')`,
         [campaignId, tenantId, to || ""]
       );
+      await pool.query(
+        `UPDATE campaigns SET failed = failed + 1 WHERE id = $1`,
+        [campaignId]
+      );
       sendEvent({ type: "progress", index: i, total: parsedRecipients.length, to: to || "", status: "invalid" });
       continue;
     }
@@ -121,6 +125,10 @@ async function runCampaign(payload, sendEvent = () => {}) {
         `INSERT INTO campaign_results (campaign_id, tenant_id, to_email, status, attach_status, reason)
          VALUES ($1, $2, $3, 'invalid', NULL, 'Unsubscribed')`,
         [campaignId, tenantId, to]
+      );
+      await pool.query(
+        `UPDATE campaigns SET failed = failed + 1 WHERE id = $1`,
+        [campaignId]
       );
       sendEvent({ type: "progress", index: i, total: parsedRecipients.length, to, status: "invalid" });
       continue;
@@ -204,6 +212,18 @@ async function runCampaign(payload, sendEvent = () => {}) {
          VALUES ($1, $2, $3, 'sent', $4, NULL)`,
         [campaignId, tenantId, to, attachStatus]
       );
+      await pool.query(
+        `UPDATE campaigns SET sent = sent + 1 WHERE id = $1`,
+        [campaignId]
+      );
+      const todayStr = new Date().toISOString().slice(0, 10);
+      await pool.query(
+        `UPDATE users
+         SET sent_today = CASE WHEN last_sent_date = $1 THEN sent_today + 1 ELSE 1 END,
+             last_sent_date = $1
+         WHERE tenant_id = $2 AND role != 'admin'`,
+        [todayStr, tenantId]
+      );
       sendEvent({ type: "progress", index: i, total: parsedRecipients.length, to, status: "sent" });
     } else {
       failed++;
@@ -211,6 +231,10 @@ async function runCampaign(payload, sendEvent = () => {}) {
         `INSERT INTO campaign_results (campaign_id, tenant_id, to_email, status, attach_status, reason)
          VALUES ($1, $2, $3, 'error', $4, $5)`,
         [campaignId, tenantId, to, attachStatus, lastError]
+      );
+      await pool.query(
+        `UPDATE campaigns SET failed = failed + 1 WHERE id = $1`,
+        [campaignId]
       );
       sendEvent({ type: "progress", index: i, total: parsedRecipients.length, to, status: "error", reason: lastError });
     }
@@ -224,21 +248,11 @@ async function runCampaign(payload, sendEvent = () => {}) {
   activeCampaigns.delete(campaignId);
   activeCancellations.delete(campaignId);
 
-  // 6. Update final campaign status
+  // 6. Update final campaign status and ensure counts are set precisely
   const finalStatus = isCancelled ? "cancelled" : (failed === parsedRecipients.length ? "failed" : "completed");
   await pool.query(
     "UPDATE campaigns SET sent = $1, failed = $2, status = $3 WHERE id = $4",
     [sent, failed, finalStatus, campaignId]
-  );
-
-  // 7. Update tenant sent quota (clients only)
-  const todayStr = new Date().toISOString().slice(0, 10);
-  await pool.query(
-    `UPDATE users
-     SET sent_today = CASE WHEN last_sent_date = $1 THEN sent_today + $2 ELSE $2 END,
-         last_sent_date = $1
-     WHERE tenant_id = $3 AND role != 'admin'`,
-    [todayStr, sent, tenantId]
   );
 
   sendEvent({ type: "done", results: { sent, failed, status: finalStatus } });
