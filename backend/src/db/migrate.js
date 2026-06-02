@@ -45,7 +45,10 @@ async function seedAdmin() {
   );
 
   if (rows.length > 0) {
-    logger.info("Admin user already exists — skipping seed");
+    logger.info("Admin user already exists — ensuring daily quota is 10000");
+    await pool.query(
+      "UPDATE users SET daily_quota = 10000 WHERE role = 'admin'"
+    );
     return;
   }
 
@@ -55,13 +58,13 @@ async function seedAdmin() {
 
   await pool.query(
     `INSERT INTO users
-       (id, tenant_id, email, password_hash, role, must_reset_password, is_suspended)
-     VALUES ($1, $2, $3, $4, 'admin', FALSE, FALSE)
-     ON CONFLICT (email) DO NOTHING`,
+       (id, tenant_id, email, password_hash, role, must_reset_password, is_suspended, daily_quota)
+     VALUES ($1, $2, $3, $4, 'admin', FALSE, FALSE, 10000)
+     ON CONFLICT (email) DO UPDATE SET daily_quota = 10000`,
     [adminId, tenantId, ADMIN_EMAIL, passwordHash]
   );
 
-  logger.info("✅ Default admin user seeded", { email: ADMIN_EMAIL });
+  logger.info("✅ Default admin user seeded with 10,000 email daily quota", { email: ADMIN_EMAIL });
 }
 
 module.exports = { runMigrations };
