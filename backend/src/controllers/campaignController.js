@@ -6,6 +6,7 @@ const crypto = require("crypto");
 const { pool } = require("../config/db");
 const logger = require("../utils/logger");
 const { getQueue, queueEvents } = require("../../queue");
+const campaignRunner = require("../services/campaignRunner");
 
 const ATTACHMENTS_DIR = path.join(__dirname, "..", "..", "attachments");
 
@@ -278,8 +279,40 @@ async function getCampaignDetails(req, res, next) {
   }
 }
 
+async function getActive(req, res, next) {
+  try {
+    const active = campaignRunner.getActiveCampaigns();
+    // Filter active campaigns by the logged-in client's tenantId for security isolation
+    const filtered = active.filter(c => c.tenantId === req.user.tenantId);
+    return res.json({ success: true, active: filtered });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function cancel(req, res, next) {
+  try {
+    const { id } = req.params;
+    const { tenantId } = req.user;
+
+    const active = campaignRunner.getActiveCampaigns();
+    const campaign = active.find(c => c.campaignId === id);
+    if (!campaign || campaign.tenantId !== tenantId) {
+      return res.status(404).json({ success: false, message: "Active campaign not found or access denied" });
+    }
+
+    campaignRunner.cancelCampaign(id);
+    logger.warn(`User requested cancel for active campaign: ${id}`);
+    return res.json({ success: true, message: "Cancellation request received successfully" });
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   sendBulk,
   getCampaigns,
-  getCampaignDetails
+  getCampaignDetails,
+  getActive,
+  cancel
 };

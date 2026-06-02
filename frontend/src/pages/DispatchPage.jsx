@@ -34,6 +34,77 @@ export function DispatchPage({
   const [scheduleTime, setScheduleTime] = useState("");
   const [scheduledSuccess, setScheduledSuccess] = useState(false);
 
+  const [activeCampaignId, setActiveCampaignId] = useState(null);
+  const [activeCampaignSubject, setActiveCampaignSubject] = useState("");
+  const [activeCurrentEmail, setActiveCurrentEmail] = useState("");
+  const [isCancelling, setIsCancelling] = useState(false);
+
+  // Poll for active background campaigns to recover state dynamically
+  useEffect(() => {
+    let intervalId = null;
+
+    const checkActiveCampaigns = async () => {
+      try {
+        const res = await fetch(`${backendUrl}/api/campaigns/active`, {
+          headers: {
+            "Authorization": `Bearer ${token}`
+          }
+        });
+        if (!res.ok) return;
+        const json = await res.json();
+        if (json.success && json.active && json.active.length > 0) {
+          const act = json.active[0];
+          setActiveCampaignId(act.campaignId);
+          setActiveCampaignSubject(act.subject);
+          setActiveCurrentEmail(act.currentEmail);
+          setSending(true);
+          const percent = act.total > 0 ? Math.round((act.progress / act.total) * 100) : 0;
+          setSendProgress(percent);
+        } else {
+          // If we were tracking an active campaign and it is no longer active, it finished or was cancelled
+          if (activeCampaignId) {
+            setSending(false);
+            setActiveCampaignId(null);
+            setIsCancelling(false);
+            setSendProgress(100);
+            showAlert("Campaign Finished", "The active background campaign has finished processing.", "success");
+          }
+        }
+      } catch (_) {}
+    };
+
+    // Run check immediately on mount
+    checkActiveCampaigns();
+
+    // Poll every 3 seconds
+    intervalId = setInterval(checkActiveCampaigns, 3000);
+
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [backendUrl, token, activeCampaignId]);
+
+  const handleCancelCampaign = async () => {
+    if (!activeCampaignId) return;
+    setIsCancelling(true);
+    try {
+      const res = await fetch(`${backendUrl}/api/campaigns/${activeCampaignId}/cancel`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`
+        }
+      });
+      if (res.ok) {
+        showAlert("Cancelling", "Cancellation request submitted. The campaign will halt shortly.", "info");
+      } else {
+        throw new Error("Failed to submit cancellation request.");
+      }
+    } catch (err) {
+      showAlert("Cancellation Error", err.message, "error");
+      setIsCancelling(false);
+    }
+  };
+
   const [alertState, setAlertState] = useState({ isOpen: false, title: "", message: "", type: "info" });
 
   const showAlert = (title, message, type = "info") => {
@@ -304,34 +375,80 @@ export function DispatchPage({
         <Card className="animate-fade-in">
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-gray-800">Sending in progress…</h3>
+              <h3 className="font-semibold text-gray-800">
+                {activeCampaignId ? "Background Dispatch Active 📡" : "Sending in progress…"}
+              </h3>
               <Badge color="blue">{sendProgress}%</Badge>
             </div>
-            <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+            
+            <div className="w-full h-2.5 bg-gray-100 rounded-full overflow-hidden">
               <div
                 className="h-full bg-gradient-to-r from-blue-500 to-violet-500 rounded-full transition-all duration-300"
                 style={{ width: `${sendProgress}%` }}
               />
             </div>
-            <div className="max-h-48 overflow-y-auto space-y-1">
-              {[...sendLog].reverse().slice(0, 20).map((l, i) => (
-                <div key={i} className="flex items-center gap-2 text-xs">
-                  <span
-                    className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                      l.status === "sent" ? "bg-green-400" : l.status === "error" ? "bg-red-400" : "bg-gray-300"
-                    }`}
-                  />
-                  <span className="text-gray-600 font-mono">{l.to}</span>
-                  <span
-                    className={`ml-auto font-medium ${
-                      l.status === "sent" ? "text-green-600" : l.status === "error" ? "text-red-600" : "text-gray-400"
-                    }`}
-                  >
-                    {l.status}
+
+            {/* Live Recipient Info */}
+            {(activeCurrentEmail || sendLog.length > 0) && (
+              <div className="p-4 bg-slate-50 border border-gray-100 rounded-2xl space-y-2">
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">LIVE ACTIVITY RECORD</p>
+                <div className="flex flex-col sm:flex-row justify-between gap-1 text-xs">
+                  <span className="text-gray-500">Currently Sending To:</span>
+                  <span className="font-mono font-bold text-gray-800 break-all">
+                    {activeCurrentEmail || (sendLog.length > 0 ? sendLog[sendLog.length - 1].to : "preparing...")}
                   </span>
                 </div>
-              ))}
-            </div>
+                {(activeCampaignSubject || subject) && (
+                  <div className="flex flex-col sm:flex-row justify-between gap-1 text-xs border-t border-gray-100 pt-2">
+                    <span className="text-gray-500">Campaign Subject:</span>
+                    <span className="font-semibold text-gray-700 truncate max-w-xs">
+                      {activeCampaignSubject || subject}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Stop Sending Button */}
+            {activeCampaignId && (
+              <div className="pt-2 border-t border-gray-100 flex justify-end">
+                <Button
+                  variant="danger"
+                  onClick={handleCancelCampaign}
+                  disabled={isCancelling}
+                  icon={<Icon name="x" size={14} />}
+                  className="text-xs bg-red-600 hover:bg-red-700 text-white shadow-md shadow-red-100 font-bold px-4 py-2"
+                >
+                  {isCancelling ? "Stopping Campaign..." : "Stop Sending (Cancel)"}
+                </Button>
+              </div>
+            )}
+
+            {/* Live Streaming List logs (Only shown if SSE is sending in this tab) */}
+            {sendLog.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-1">Recent Logs</p>
+                <div className="max-h-48 overflow-y-auto space-y-1 pr-1 border border-gray-50 rounded-xl p-2 bg-slate-50/30">
+                  {[...sendLog].reverse().slice(0, 20).map((l, i) => (
+                    <div key={i} className="flex items-center gap-2 text-xs">
+                      <span
+                        className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                          l.status === "sent" ? "bg-green-400" : l.status === "error" ? "bg-red-400" : "bg-gray-300"
+                        }`}
+                      />
+                      <span className="text-gray-600 font-mono">{l.to}</span>
+                      <span
+                        className={`ml-auto font-medium ${
+                          l.status === "sent" ? "text-green-600" : l.status === "error" ? "text-red-600" : "text-gray-400"
+                        }`}
+                      >
+                        {l.status}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </Card>
       )}
