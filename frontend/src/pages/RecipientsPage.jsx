@@ -31,6 +31,11 @@ export function RecipientsPage({
   const [search, setSearch] = useState("");
   const [alertState, setAlertState] = useState({ isOpen: false, title: "", message: "", type: "info" });
 
+  // New States for expanded features
+  const [summaryStats, setSummaryStats] = useState(null);
+  const [recipientTag, setRecipientTag] = useState(() => localStorage.getItem("dm_recipient_tag") || "");
+  const [filterColumn, setFilterColumn] = useState("all");
+
   const showAlert = (title, message, type = "info") => {
     setAlertState({ isOpen: true, title, message, type });
   };
@@ -42,6 +47,51 @@ export function RecipientsPage({
     setEmailCol(ec);
     setNameCol(nc);
     setIdCol(ic);
+  };
+
+  // Helper function to deduplicate and validate loaded spreadsheet rows
+  const processSpreadsheetData = (rows, cols) => {
+    const ec = cols.find((c) => /email/i.test(c)) || cols[0] || "";
+    const seen = new Set();
+    const uniqueRows = [];
+    let duplicates = 0;
+    let invalid = 0;
+    let valid = 0;
+
+    rows.forEach((row) => {
+      const email = String(row[ec] || "").toLowerCase().trim();
+      if (!email) {
+        invalid++;
+        return;
+      }
+      if (!validateEmail(email)) {
+        invalid++;
+      } else {
+        valid++;
+      }
+
+      if (seen.has(email)) {
+        duplicates++;
+      } else {
+        seen.add(email);
+        uniqueRows.push(row);
+      }
+    });
+
+    setData(uniqueRows);
+    setColumns(cols);
+    autoSetColumns(cols);
+
+    setSummaryStats({
+      total: rows.length,
+      valid,
+      invalid,
+      duplicates
+    });
+
+    if (duplicates > 0) {
+      showAlert("Deduplication", `Auto-removed ${duplicates} duplicate email address(es) from the loaded list.`, "success");
+    }
   };
 
   const handleFileUpload = (e) => {
@@ -61,9 +111,7 @@ export function RecipientsPage({
             });
             return obj;
           });
-          setData(cleaned);
-          setColumns(cols);
-          autoSetColumns(cols);
+          processSpreadsheetData(cleaned, cols);
         },
         error: (err) => {
           showAlert("CSV Parse Error", err.message, "error");
@@ -89,9 +137,7 @@ export function RecipientsPage({
             });
             return obj;
           });
-          setData(cleaned);
-          setColumns(cols);
-          autoSetColumns(cols);
+          processSpreadsheetData(cleaned, cols);
         } catch (err) {
           showAlert("Excel Parse Error", err.message, "error");
         }
@@ -143,12 +189,41 @@ export function RecipientsPage({
 
     setData((prev) => {
       const existing = prev || [];
-      const mappedList = parsedList.map((item) => ({
-        email: item.email,
-        name: item.name,
-        id: item.id
-      }));
-      return [...existing, ...mappedList];
+      const ec = "email";
+      const seen = new Set(existing.map((row) => String(row[ec] || "").toLowerCase().trim()));
+      
+      const uniqueManual = [];
+      let duplicates = 0;
+
+      parsedList.forEach((item) => {
+        const emailLower = item.email.toLowerCase().trim();
+        if (seen.has(emailLower)) {
+          duplicates++;
+        } else {
+          seen.add(emailLower);
+          uniqueManual.push(item);
+        }
+      });
+
+      const combined = [...existing, ...uniqueManual];
+      
+      // Update/Initialize summary stats
+      const total = (summaryStats?.total || existing.length) + parsedList.length;
+      const valid = (summaryStats?.valid || existing.length) + parsedList.length;
+      const prevDuplicates = summaryStats?.duplicates || 0;
+
+      setSummaryStats({
+        total,
+        valid,
+        invalid: summaryStats?.invalid || 0,
+        duplicates: prevDuplicates + duplicates
+      });
+
+      if (duplicates > 0) {
+        showAlert("Deduplication", `Skipped ${duplicates} duplicate email address(es).`, "success");
+      }
+
+      return combined;
     });
 
     setColumns((prev) => {
@@ -164,12 +239,43 @@ export function RecipientsPage({
     showAlert("Success", `Successfully added ${parsedList.length} manual email(s) to the list!`, "success");
   };
 
+  const handleRemoveRow = (rowItem) => {
+    setData((prev) => {
+      const updated = prev.filter((item) => item !== rowItem);
+      // Recalculate stats based on updated data and active emailCol
+      const col = emailCol || "email";
+      let valid = 0;
+      let invalid = 0;
+      updated.forEach((row) => {
+        const email = String(row[col] || "").trim();
+        if (validateEmail(email)) {
+          valid++;
+        } else {
+          invalid++;
+        }
+      });
+      setSummaryStats((prevStats) => ({
+        total: updated.length,
+        valid,
+        invalid,
+        duplicates: prevStats?.duplicates || 0
+      }));
+      return updated;
+    });
+  };
+
   const filteredData = data && search
-    ? data.filter((row) =>
-        Object.values(row).some((v) =>
-          String(v).toLowerCase().includes(search.toLowerCase())
-        )
-      )
+    ? data.filter((row) => {
+        if (filterColumn === "all") {
+          return Object.values(row).some((v) =>
+            String(v).toLowerCase().includes(search.toLowerCase())
+          );
+        } else {
+          return String(row[filterColumn] ?? "")
+            .toLowerCase()
+            .includes(search.toLowerCase());
+        }
+      })
     : data;
 
   return (
@@ -278,6 +384,58 @@ export function RecipientsPage({
         </Card>
       </div>
 
+      {/* Upload Summary Banner */}
+      {summaryStats && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-gradient-to-r from-blue-500/10 to-violet-500/10 backdrop-blur-md border border-white/20 rounded-2xl shadow-xl">
+          <div className="text-center p-3 rounded-xl bg-white/60 border border-slate-100">
+            <span className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider">Total Loaded</span>
+            <span className="block text-2xl font-extrabold text-slate-800 mt-1">{summaryStats.total}</span>
+          </div>
+          <div className="text-center p-3 rounded-xl bg-emerald-50/60 border border-emerald-100">
+            <span className="block text-[11px] font-bold text-emerald-600 uppercase tracking-wider">✓ Valid Emails</span>
+            <span className="block text-2xl font-extrabold text-emerald-700 mt-1">{summaryStats.valid}</span>
+          </div>
+          <div className="text-center p-3 rounded-xl bg-amber-50/60 border border-amber-100">
+            <span className="block text-[11px] font-bold text-amber-600 uppercase tracking-wider">✗ Invalid</span>
+            <span className="block text-2xl font-extrabold text-amber-700 mt-1">{summaryStats.invalid}</span>
+          </div>
+          <div className="text-center p-3 rounded-xl bg-violet-50/60 border border-violet-100">
+            <span className="block text-[11px] font-bold text-violet-600 uppercase tracking-wider">🔁 Duplicates Removed</span>
+            <span className="block text-2xl font-extrabold text-violet-700 mt-1">{summaryStats.duplicates}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Contact Tag input */}
+      {data && (
+        <Card>
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="flex-1 w-full">
+              <label className="block text-sm font-semibold text-gray-700 mb-1">
+                🏷 Group / Tag for this list (Optional)
+              </label>
+              <input
+                type="text"
+                value={recipientTag}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setRecipientTag(val);
+                  localStorage.setItem("dm_recipient_tag", val);
+                }}
+                placeholder="e.g. June Newsletter Group, Leads-A"
+                className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            {recipientTag && (
+              <div className="flex-shrink-0 flex items-center gap-2 bg-blue-50 text-blue-700 border border-blue-100 font-bold px-3 py-1.5 rounded-full text-xs">
+                <span>Active List Tag:</span>
+                <Badge color="blue">{recipientTag}</Badge>
+              </div>
+            )}
+          </div>
+        </Card>
+      )}
+
       {/* Column mapping */}
       {columns.length > 0 && (
         <Card>
@@ -310,13 +468,27 @@ export function RecipientsPage({
         <Card className="overflow-hidden animate-fade-in">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-semibold text-gray-800">Data Preview</h3>
-            <input
-              type="text"
-              placeholder="Search recipients..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 w-56"
-            />
+            <div className="flex items-center gap-2">
+              <select
+                value={filterColumn}
+                onChange={(e) => setFilterColumn(e.target.value)}
+                className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-700 bg-white"
+              >
+                <option value="all">All Columns</option>
+                {columns.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="text"
+                placeholder="Search recipients..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 w-56"
+              />
+            </div>
           </div>
           <div className="overflow-x-auto rounded-xl border border-gray-100">
             <table className="w-full text-sm">
@@ -330,6 +502,9 @@ export function RecipientsPage({
                       {c}
                     </th>
                   ))}
+                  <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                    Action
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -340,6 +515,15 @@ export function RecipientsPage({
                         {String(row[c] ?? "")}
                       </td>
                     ))}
+                    <td className="px-4 py-2.5 text-right">
+                      <button
+                        onClick={() => handleRemoveRow(row)}
+                        className="text-gray-400 hover:text-red-500 transition-colors p-1"
+                        title="Delete Recipient"
+                      >
+                        <Icon name="trash" size={16} />
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>

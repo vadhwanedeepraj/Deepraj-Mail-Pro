@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useApi } from "../hooks/useApi";
 import { Card } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
@@ -6,7 +6,7 @@ import { Badge } from "../components/ui/Badge";
 import { Icon } from "../components/ui/Icon";
 import { AlertModal } from "../components/ui/Modal";
 
-export function HistoryPage({ backendUrl }) {
+export function HistoryPage({ backendUrl, onDuplicate, clientTenantId, clientEmail }) {
   const { request } = useApi();
 
   const [campaigns, setCampaigns] = useState([]);
@@ -14,6 +14,7 @@ export function HistoryPage({ backendUrl }) {
   
   // Search / Sort / Pagination
   const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState(""); // display value — debounced into `search`
   const [sortOrder, setSortOrder] = useState("desc");
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -27,8 +28,77 @@ export function HistoryPage({ backendUrl }) {
   const [alertState, setAlertState] = useState({ isOpen: false, title: "", message: "", type: "info" });
   const [migrationMessage, setMigrationMessage] = useState(false);
 
+  // Label Editing States
+  const [editingLabelId, setEditingLabelId] = useState(null);
+  const [labelText, setLabelText] = useState("");
+  const [labelColor, setLabelColor] = useState("blue");
+
+  // Debounce ref for search input
+  const searchDebounceRef = useRef(null);
+
   const showAlert = (title, message, type = "info") => {
     setAlertState({ isOpen: true, title, message, type });
+  };
+
+  // Duplicate campaign
+  const handleDuplicate = async (campaignId) => {
+    try {
+      const data = await request(`${backendUrl}/api/campaigns/${campaignId}/duplicate`, {
+        method: "POST"
+      });
+      if (data.success && data.campaign) {
+        if (onDuplicate) {
+          onDuplicate(data.campaign);
+        }
+        showAlert("Duplicated", "Campaign duplicated successfully! Subject & Body loaded to composer.", "success");
+      }
+    } catch (err) {
+      showAlert("Duplication Error", err.message, "error");
+    }
+  };
+
+  // Save campaign label
+  const handleSaveLabel = async (campaignId) => {
+    try {
+      const data = await request(`${backendUrl}/api/campaigns/${campaignId}/label`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ label: labelText, labelColor })
+      });
+      if (data.success) {
+        setCampaigns((prev) =>
+          prev.map((c) =>
+            c.id === campaignId ? { ...c, label: labelText, label_color: labelColor } : c
+          )
+        );
+        setEditingLabelId(null);
+        showAlert("Success", "Label updated successfully!", "success");
+      }
+    } catch (err) {
+      showAlert("Label Error", err.message, "error");
+    }
+  };
+
+  // Export history summaries as CSV
+  const handleExportHistoryCsv = () => {
+    if (!campaigns.length) return;
+    const headers = ["Date", "Subject", "Total Recipients", "Sent", "Failed", "Status", "Label"];
+    const rows = campaigns.map((c) => [
+      new Date(c.created_at || c.date).toLocaleString(),
+      `"${c.subject.replace(/"/g, '""')}"`,
+      c.total_recipients || c.total || 0,
+      c.sent || 0,
+      c.failed || 0,
+      c.status,
+      c.label || ""
+    ]);
+    const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+    const a = document.createElement("a");
+    a.href = `data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`;
+    a.download = `campaign_history_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
   };
 
   // 1. One-time browser migration cleanup on mount
@@ -43,18 +113,19 @@ export function HistoryPage({ backendUrl }) {
   const fetchCampaigns = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await request(
-        `${backendUrl}/api/campaigns?page=${page}&search=${encodeURIComponent(search)}&sortOrder=${sortOrder}`
-      );
+      let url = `${backendUrl}/api/campaigns?page=${page}&search=${encodeURIComponent(search)}&sortOrder=${sortOrder}`;
+      if (clientTenantId) {
+        url += `&clientTenantId=${encodeURIComponent(clientTenantId)}`;
+      }
+      const data = await request(url);
       setCampaigns(data.campaigns);
       setTotalPages(data.pagination.pages || 1);
     } catch (err) {
       showAlert("Error", err.message, "error");
     } finally {
-      setLoading(true);
       setLoading(false);
     }
-  }, [backendUrl, request, page, search, sortOrder]);
+  }, [backendUrl, request, page, search, sortOrder, clientTenantId]);
 
   useEffect(() => {
     fetchCampaigns();
@@ -93,6 +164,14 @@ export function HistoryPage({ backendUrl }) {
           <h2 className="text-2xl font-bold text-gray-900">Campaign History</h2>
           <p className="text-gray-500 text-sm mt-1">Campaign records are securely stored on the PostgreSQL server</p>
         </div>
+        {campaigns.length > 0 && (
+          <button
+            onClick={handleExportHistoryCsv}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 transition-all shadow-sm"
+          >
+            <Icon name="download" size={13} /> Export History CSV
+          </button>
+        )}
       </div>
 
       {migrationMessage && (
@@ -113,10 +192,15 @@ export function HistoryPage({ backendUrl }) {
           <input
             type="text"
             placeholder="Search campaigns by subject..."
-            value={search}
+            value={searchInput}
             onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(1);
+              const val = e.target.value;
+              setSearchInput(val);
+              if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+              searchDebounceRef.current = setTimeout(() => {
+                setSearch(val);
+                setPage(1);
+              }, 400);
             }}
             className="w-full px-3.5 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
@@ -146,8 +230,80 @@ export function HistoryPage({ backendUrl }) {
           {campaigns.map((c) => (
             <Card key={c.id} className="hover:shadow-md transition-shadow">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div className="space-y-1">
-                  <h4 className="font-bold text-gray-900 text-base">{c.subject}</h4>
+                <div className="space-y-1 flex-1">
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <h4 className="font-bold text-gray-900 text-base">{c.subject}</h4>
+                    {c.label ? (
+                      <span
+                        onClick={() => {
+                          setEditingLabelId(c.id);
+                          setLabelText(c.label);
+                          setLabelColor(c.label_color || "blue");
+                        }}
+                        className={`cursor-pointer px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all hover:opacity-80 ${
+                          c.label_color === "green" ? "bg-green-50 text-green-700 border border-green-200" :
+                          c.label_color === "red" ? "bg-red-50 text-red-700 border border-red-200" :
+                          c.label_color === "violet" ? "bg-purple-50 text-purple-700 border border-purple-200" :
+                          c.label_color === "amber" ? "bg-amber-50 text-amber-700 border border-amber-200" :
+                          "bg-blue-50 text-blue-700 border border-blue-200"
+                        }`}
+                      >
+                        {c.label}
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          setEditingLabelId(c.id);
+                          setLabelText("");
+                          setLabelColor("blue");
+                        }}
+                        className="px-2 py-0.5 border border-dashed border-gray-300 hover:border-blue-500 hover:text-blue-600 rounded-full text-[10px] font-bold text-gray-400 uppercase tracking-wider transition-all"
+                      >
+                        + Add Label
+                      </button>
+                    )}
+                  </div>
+
+                  {editingLabelId === c.id && (
+                    <div className="flex items-center gap-2 mt-1 animate-fade-in bg-slate-50 p-2 rounded-xl border border-slate-100 w-fit">
+                      <input
+                        type="text"
+                        value={labelText}
+                        onChange={(e) => setLabelText(e.target.value)}
+                        placeholder="Label name"
+                        className="px-2.5 py-1 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white w-28"
+                        autoFocus
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") handleSaveLabel(c.id);
+                          if (e.key === "Escape") setEditingLabelId(null);
+                        }}
+                      />
+                      <select
+                        value={labelColor}
+                        onChange={(e) => setLabelColor(e.target.value)}
+                        className="px-2 py-1 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white text-gray-700"
+                      >
+                        <option value="blue">Blue</option>
+                        <option value="green">Green</option>
+                        <option value="violet">Violet</option>
+                        <option value="amber">Amber</option>
+                        <option value="red">Red</option>
+                      </select>
+                      <button
+                        onClick={() => handleSaveLabel(c.id)}
+                        className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-bold rounded-lg transition-colors"
+                      >
+                        Save
+                      </button>
+                      <button
+                        onClick={() => setEditingLabelId(null)}
+                        className="px-2 py-1 bg-gray-200 hover:bg-gray-300 text-gray-700 text-[10px] font-bold rounded-lg transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
+
                   <p className="text-xs text-gray-400">
                     Sent on {new Date(c.created_at || c.date).toLocaleString()}
                   </p>
@@ -160,7 +316,15 @@ export function HistoryPage({ backendUrl }) {
                     </Badge>
                   </div>
                 </div>
-                <div className="flex items-center gap-2.5">
+                <div className="flex items-center gap-2.5 flex-shrink-0">
+                  <Button
+                    variant="secondary"
+                    onClick={() => handleDuplicate(c.id)}
+                    className="text-xs py-2 px-3.5"
+                    icon={<Icon name="copy" size={13} />}
+                  >
+                    Duplicate
+                  </Button>
                   <Button variant="secondary" onClick={() => handleViewDetails(c)} className="text-xs py-2 px-3.5">
                     View Dispatch Logs
                   </Button>
@@ -212,14 +376,22 @@ export function HistoryPage({ backendUrl }) {
             </div>
 
             <div className="flex-grow overflow-y-auto space-y-4 pr-1">
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-4 gap-3">
                 <div className="bg-green-50 rounded-xl p-3 text-center">
                   <p className="text-xl font-bold text-green-700">{selectedCampaign.sent}</p>
                   <p className="text-[10px] text-green-600 uppercase font-semibold">Sent Successfully</p>
                 </div>
                 <div className="bg-red-50 rounded-xl p-3 text-center">
-                  <p className="text-xl font-bold text-red-700">{selectedCampaign.failed}</p>
-                  <p className="text-[10px] text-red-600 uppercase font-semibold">Errors / Failed</p>
+                  <p className="text-xl font-bold text-red-700">
+                    {campaignDetails ? campaignDetails.filter(r => r.status === 'error').length : '…'}
+                  </p>
+                  <p className="text-[10px] text-red-600 uppercase font-semibold">SMTP Errors</p>
+                </div>
+                <div className="bg-amber-50 rounded-xl p-3 text-center">
+                  <p className="text-xl font-bold text-amber-700">
+                    {campaignDetails ? campaignDetails.filter(r => r.status === 'invalid').length : '…'}
+                  </p>
+                  <p className="text-[10px] text-amber-600 uppercase font-semibold">Invalid / Skipped</p>
                 </div>
                 <div className="bg-blue-50 rounded-xl p-3 text-center">
                   <p className="text-xl font-bold text-blue-700">{selectedCampaign.total_recipients}</p>

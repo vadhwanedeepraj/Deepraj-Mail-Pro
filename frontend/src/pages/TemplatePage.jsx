@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import ReactQuill from "react-quill";
 import "react-quill/dist/quill.snow.css";
 import { Card } from "../components/ui/Card";
@@ -6,6 +6,7 @@ import { Button } from "../components/ui/Button";
 import { Icon } from "../components/ui/Icon";
 import { renderTemplate } from "../utils/validators";
 import { useAuth } from "../context/AuthContext";
+import { useApi } from "../hooks/useApi";
 
 export function TemplatePage({
   columns,
@@ -20,12 +21,32 @@ export function TemplatePage({
   previewIndex,
   setPreviewIndex,
   onBack,
-  onNext
+  onNext,
+  backendUrl
 }) {
-  const { email } = useAuth();
+  const { email, token } = useAuth();
+  const { request } = useApi();
   const [activeTab, setActiveTab] = useState("with"); // "with" | "without"
   const [showVariables, setShowVariables] = useState(false);
   const dropdownRef = useRef(null);
+
+  // ── Send Test Email ──────────────────────────────────────────────────────
+  const [showTestEmail, setShowTestEmail]     = useState(false);
+  const [testEmailSending, setTestEmailSending] = useState(false);
+  const [testEmailStatus, setTestEmailStatus]   = useState(null); // null | "success" | "error"
+  const [testEmailMsg, setTestEmailMsg]         = useState("");
+
+  // ── Spam Score Checker ───────────────────────────────────────────────────
+  const [showSpamChecker, setShowSpamChecker] = useState(false);
+  const [spamScore, setSpamScore]             = useState(0);
+  const [spamFlags, setSpamFlags]             = useState([]);
+
+  // ── Dark Mode Preview ────────────────────────────────────────────────────
+  const [darkModePreview, setDarkModePreview] = useState(false);
+
+  // ── Draft Auto-save ──────────────────────────────────────────────────────
+  const [draftRestoreAvail, setDraftRestoreAvail] = useState(false);
+  const [draftSavedAt, setDraftSavedAt]           = useState(null);
 
   const [showCTA, setShowCTA] = useState(false);
   const [btnText, setBtnText] = useState("Click Here");
@@ -34,6 +55,12 @@ export function TemplatePage({
 
   const [showGallery, setShowGallery] = useState(false);
   const [showSignature, setShowSignature] = useState(false);
+
+  // States for Image Builder
+  const [showImgPanel, setShowImgPanel] = useState(false);
+  const [imgUrl, setImgUrl] = useState("https://");
+  const [imgWidth, setImgWidth] = useState("100%");
+  const [imgHeight, setImgHeight] = useState("auto");
 
   // Load signature details from localStorage with robust defaults
   const [sigName, setSigName] = useState(() => localStorage.getItem("dm_sig_name") || "");
@@ -194,6 +221,75 @@ export function TemplatePage({
 </div>
 `;
 
+  // ── 3 New Templates ──────────────────────────────────────────────────────
+  const welcomeTemplate = `
+<div style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;max-width:600px;margin:0 auto;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;">
+  <div style="background:linear-gradient(135deg,#10b981 0%,#059669 100%);padding:32px;text-align:center;">
+    <div style="font-size:40px;">👋</div>
+    <h1 style="color:#fff;margin:8px 0 4px;font-size:24px;font-weight:800;">Welcome, {{ Name }}!</h1>
+    <p style="color:#d1fae5;margin:0;font-size:14px;">We're so glad to have you on board.</p>
+  </div>
+  <div style="padding:28px;background:#ffffff;color:#374151;line-height:1.7;font-size:14px;">
+    <p>Hi <strong>{{ Name }}</strong>, your account is ready and waiting.</p>
+    <div style="background:#f0fdf4;border-left:4px solid #10b981;border-radius:8px;padding:14px 16px;margin:20px 0;">
+      <p style="margin:0;font-weight:600;color:#065f46;">🚀 Getting Started Tips</p>
+      <ul style="margin:8px 0 0;padding-left:18px;color:#047857;">
+        <li>Complete your profile setup</li>
+        <li>Explore the dashboard features</li>
+        <li>Reach out if you need help</li>
+      </ul>
+    </div>
+    <p style="text-align:center;margin-top:24px;">
+      <a href="https://example.com" style="display:inline-block;background:#10b981;color:#fff;font-weight:bold;padding:12px 28px;border-radius:8px;text-decoration:none;font-size:13px;">Get Started →</a>
+    </p>
+  </div>
+</div>
+`;
+
+  const eventTemplate = `
+<div style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;max-width:600px;margin:0 auto;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;">
+  <div style="background:linear-gradient(135deg,#f59e0b 0%,#d97706 100%);padding:32px;text-align:center;">
+    <div style="font-size:40px;">📅</div>
+    <h1 style="color:#fff;margin:8px 0 4px;font-size:22px;font-weight:800;">You're Invited!</h1>
+    <p style="color:#fef3c7;margin:0;font-size:14px;">A special event just for you</p>
+  </div>
+  <div style="padding:28px;background:#fff;color:#374151;line-height:1.7;font-size:14px;">
+    <p>Dear <strong>{{ Name }}</strong>,</p>
+    <p>We are delighted to invite you to our upcoming event. Don't miss this exclusive opportunity.</p>
+    <table cellpadding="0" cellspacing="0" border="0" style="width:100%;margin:20px 0;border-collapse:collapse;">
+      <tr><td style="padding:8px 12px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px 8px 0 0;"><strong>📍 Location:</strong> Main Conference Hall</td></tr>
+      <tr><td style="padding:8px 12px;background:#fffbeb;border:1px solid #fde68a;border-left:1px solid #fde68a;border-right:1px solid #fde68a;"><strong>🗓 Date:</strong> Saturday, 28 June 2026</td></tr>
+      <tr><td style="padding:8px 12px;background:#fffbeb;border:1px solid #fde68a;border-radius:0 0 8px 8px;"><strong>⏰ Time:</strong> 10:00 AM — 4:00 PM</td></tr>
+    </table>
+    <p style="text-align:center;margin-top:24px;">
+      <a href="https://example.com/rsvp" style="display:inline-block;background:#f59e0b;color:#fff;font-weight:bold;padding:12px 28px;border-radius:8px;text-decoration:none;font-size:13px;">✅ RSVP Now</a>
+    </p>
+  </div>
+</div>
+`;
+
+  const reengageTemplate = `
+<div style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;max-width:600px;margin:0 auto;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;">
+  <div style="background:linear-gradient(135deg,#6366f1 0%,#8b5cf6 100%);padding:32px;text-align:center;">
+    <div style="font-size:40px;">💜</div>
+    <h1 style="color:#fff;margin:8px 0 4px;font-size:22px;font-weight:800;">We miss you, {{ Name }}!</h1>
+    <p style="color:#ede9fe;margin:0;font-size:14px;">It's been a while — here's something special.</p>
+  </div>
+  <div style="padding:28px;background:#fff;color:#374151;line-height:1.7;font-size:14px;">
+    <p>Hi <strong>{{ Name }}</strong>,</p>
+    <p>We noticed you haven't been around lately. We've been working on exciting new updates!</p>
+    <div style="background:#f5f3ff;border-radius:12px;padding:20px;margin:20px 0;text-align:center;">
+      <p style="font-size:18px;font-weight:800;color:#6d28d9;margin:0;">🎁 Special Comeback Offer</p>
+      <p style="font-size:13px;color:#7c3aed;margin:6px 0 0;">Use code <strong>WELCOMEBACK</strong> for 20% off — expires in 7 days.</p>
+    </div>
+    <p style="text-align:center;margin-top:24px;">
+      <a href="https://example.com" style="display:inline-block;background:#6366f1;color:#fff;font-weight:bold;padding:12px 28px;border-radius:8px;text-decoration:none;font-size:13px;">Come Back & Explore →</a>
+    </p>
+  </div>
+</div>
+`;
+
+
   // Persist signature inputs to localStorage automatically
   useEffect(() => {
     localStorage.setItem("dm_sig_name", sigName);
@@ -204,6 +300,22 @@ export function TemplatePage({
     localStorage.setItem("dm_sig_website", sigWebsite);
     localStorage.setItem("dm_sig_style", sigStyle);
   }, [sigName, sigTitle, sigCompany, sigPhone, sigEmail, sigWebsite, sigStyle]);
+
+  // Draft auto-save every 30 seconds
+  useEffect(() => {
+    const saved = localStorage.getItem("dm_draft_subject");
+    if (saved) setDraftRestoreAvail(true);
+  }, []);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      localStorage.setItem("dm_draft_subject",    subject);
+      localStorage.setItem("dm_draft_bodywith",   bodyWith);
+      localStorage.setItem("dm_draft_bodywithout", bodyWithout);
+      setDraftSavedAt(new Date().toLocaleTimeString());
+    }, 30000);
+    return () => clearInterval(timer);
+  }, [subject, bodyWith, bodyWithout]);
 
   const previewRow = data?.[previewIndex] ?? {};
   const previewBody = renderTemplate(activeTab === "with" ? bodyWith : bodyWithout, previewRow);
@@ -283,17 +395,115 @@ export function TemplatePage({
     }
   };
 
-  // Custom Quill Toolbar configuration (compact & clean)
+  const handleInsertImage = (url, width, height) => {
+    const quillEditor = activeTab === "with" 
+      ? quillWithRef.current?.getEditor() 
+      : quillWithoutRef.current?.getEditor();
+
+    if (quillEditor) {
+      const range = quillEditor.getSelection(true);
+      const styleString = `max-width:100%; width:${width || "auto"}; height:${height || "auto"}; display:block; margin: 10px 0; border-radius: 8px;`;
+      const imgHtml = `<p><img src="${url}" style="${styleString}" alt="Email Image" /></p>`;
+      
+      quillEditor.clipboard.dangerouslyPasteHTML(range.index, imgHtml);
+      quillEditor.setSelection(range.index + imgHtml.length);
+    }
+  };
+
+  // Custom Quill Toolbar configuration (compact & clean with image upload/insert support)
   const quillModules = {
     toolbar: [
       ['bold', 'italic', 'underline', 'strike'],
       [{ 'list': 'ordered'}, { 'list': 'bullet' }],
-      ['link', 'clean']
+      ['link', 'image', 'clean']
     ]
+  };
+
+  // ── Send Test Email ──────────────────────────────────────────────────────
+  const handleSendTestEmail = async () => {
+    if (!backendUrl) return;
+    setTestEmailSending(true);
+    setTestEmailStatus(null);
+    const body = activeTab === "with" ? bodyWith : bodyWithout;
+    try {
+      const res = await fetch(`${backendUrl}/api/send-test`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({ subject, body })
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.message || "Failed");
+      setTestEmailStatus("success");
+      setTestEmailMsg(json.message);
+    } catch (err) {
+      setTestEmailStatus("error");
+      setTestEmailMsg(err.message);
+    } finally {
+      setTestEmailSending(false);
+      setTimeout(() => setTestEmailStatus(null), 5000);
+    }
+  };
+
+  // ── Spam Score Checker ───────────────────────────────────────────────────
+  const SPAM_WORDS = [
+    "free", "winner", "click here", "urgent", "limited time", "act now", "guaranteed",
+    "no risk", "cash", "earn money", "make money", "100%", "buy now", "order now",
+    "subscribe now", "special offer", "bonus", "prize", "congratulations", "exclusive deal",
+    "discount", "cheap", "lowest price", "bargain", "amazing", "incredible offer",
+    "unsubscribe", "opt-in", "click below", "risk-free"
+  ];
+
+  const handleCheckSpam = useCallback(() => {
+    const text = (subject + " " + bodyWith + " " + bodyWithout).toLowerCase();
+    const found = SPAM_WORDS.filter(w => text.includes(w));
+    const score = Math.min(10, Math.round((found.length / SPAM_WORDS.length) * 20));
+    setSpamFlags(found);
+    setSpamScore(score);
+    setShowSpamChecker(true);
+  }, [subject, bodyWith, bodyWithout]);
+
+  // ── Draft Restore ────────────────────────────────────────────────────────
+  const handleRestoreDraft = () => {
+    const s = localStorage.getItem("dm_draft_subject");
+    const bw = localStorage.getItem("dm_draft_bodywith");
+    const bwo = localStorage.getItem("dm_draft_bodywithout");
+    if (s)   setSubject(s);
+    if (bw)  setBodyWith(bw);
+    if (bwo) setBodyWithout(bwo);
+    setDraftRestoreAvail(false);
+  };
+
+  const handleDiscardDraft = () => {
+    localStorage.removeItem("dm_draft_subject");
+    localStorage.removeItem("dm_draft_bodywith");
+    localStorage.removeItem("dm_draft_bodywithout");
+    setDraftRestoreAvail(false);
   };
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
+      {draftRestoreAvail && (
+        <div className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 rounded-2xl flex items-center justify-between text-blue-800 text-sm animate-fade-in shadow-sm">
+          <div className="flex items-center gap-3">
+            <Icon name="alert" size={18} className="text-blue-600" />
+            <span className="font-medium">An unsaved email template draft was found from your last session.</span>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={handleRestoreDraft}
+              className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm shadow-blue-100"
+            >
+              Restore Draft
+            </button>
+            <button
+              onClick={handleDiscardDraft}
+              className="px-3.5 py-1.5 bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 rounded-xl text-xs font-bold transition-all"
+            >
+              Discard
+            </button>
+          </div>
+        </div>
+      )}
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Email Composer</h2>
@@ -312,11 +522,41 @@ export function TemplatePage({
                 <span className="w-2 h-2 rounded-full bg-blue-600"></span> New Message
               </span>
               <div className="flex items-center gap-2">
+                {draftSavedAt && (
+                  <span className="text-[10px] text-gray-400 font-semibold italic mr-2">
+                    Draft saved at {draftSavedAt}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={handleSendTestEmail}
+                  disabled={testEmailSending}
+                  className="px-2.5 py-1 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 text-xs font-bold hover:bg-blue-100 transition-all flex items-center gap-1.5 shadow-sm"
+                >
+                  <Icon name="send" size={12} /> {testEmailSending ? "Sending..." : "Send Test"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCheckSpam}
+                  className="px-2.5 py-1 rounded-lg border border-amber-200 bg-amber-50 text-amber-700 text-xs font-bold hover:bg-amber-100 transition-all flex items-center gap-1.5 shadow-sm"
+                >
+                  <Icon name="alert" size={12} /> Spam Check
+                </button>
                 <span className="text-[10px] bg-blue-50 text-blue-600 font-semibold px-2 py-0.5 rounded-md border border-blue-100">
                   Rich Text / HTML
                 </span>
               </div>
             </div>
+
+            {/* Test Email Status Message */}
+            {testEmailStatus && (
+              <div className={`px-4 py-2.5 border-b text-xs font-semibold flex items-center justify-between animate-fade-in ${
+                testEmailStatus === "success" ? "bg-green-50 text-green-700 border-green-100" : "bg-red-50 text-red-700 border-red-100"
+              }`}>
+                <span>{testEmailMsg}</span>
+                <button onClick={() => setTestEmailStatus(null)} className="text-gray-400 hover:text-gray-600 font-bold">×</button>
+              </div>
+            )}
 
             {/* Compose Header Fields */}
             <div className="bg-white border-b border-gray-100 divide-y divide-gray-100">
@@ -446,6 +686,71 @@ export function TemplatePage({
                 )}
               </div>
 
+              {/* Add Image Builder Row */}
+              <div className="bg-slate-50/40 px-4 py-2 border-b border-gray-100 text-sm">
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-400 w-16 flex-shrink-0 font-medium">Add Image:</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowImgPanel(!showImgPanel);
+                      setShowCTA(false);
+                      setShowGallery(false);
+                      setShowSignature(false);
+                    }}
+                    className="text-xs font-bold text-emerald-600 hover:text-emerald-700 hover:underline flex items-center gap-1"
+                  >
+                    <Icon name="eye" size={13} className="text-emerald-600" /> {showImgPanel ? "Hide Image Panel" : "Insert Image via URL/Width"}
+                  </button>
+                </div>
+                {showImgPanel && (
+                  <div className="mt-3 p-4 bg-white border border-gray-200 rounded-2xl space-y-3.5 animate-fade-in shadow-sm">
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Image URL</label>
+                      <input
+                        type="text"
+                        className="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs bg-slate-50 focus:bg-white transition-all text-gray-800 font-mono"
+                        value={imgUrl}
+                        onChange={(e) => setImgUrl(e.target.value)}
+                        placeholder="e.g. https://yourdomain.com/banner.png"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Width</label>
+                        <input
+                          type="text"
+                          className="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs bg-slate-50 focus:bg-white transition-all text-gray-800"
+                          value={imgWidth}
+                          onChange={(e) => setImgWidth(e.target.value)}
+                          placeholder="e.g. 100% or 300px"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Height</label>
+                        <input
+                          type="text"
+                          className="w-full px-3 py-1.5 border border-gray-200 rounded-xl text-xs bg-slate-50 focus:bg-white transition-all text-gray-800"
+                          value={imgHeight}
+                          onChange={(e) => setImgHeight(e.target.value)}
+                          placeholder="e.g. auto or 200px"
+                        />
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleInsertImage(imgUrl, imgWidth, imgHeight);
+                        setShowImgPanel(false);
+                      }}
+                      className="px-3.5 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-xl text-xs font-bold hover:from-emerald-700 hover:to-teal-700 transition-all w-full flex items-center justify-center gap-1.5 shadow-md shadow-emerald-100"
+                    >
+                      <Icon name="plus" size={13} /> Insert Image to Editor
+                    </button>
+                  </div>
+                )}
+              </div>
+
               {/* Template Gallery Row */}
               <div className="bg-slate-50/40 px-4 py-2 border-b border-gray-100 text-sm">
                 <div className="flex justify-between items-center">
@@ -530,6 +835,75 @@ export function TemplatePage({
                             type="button"
                             onClick={() => {
                               handleLoadTemplate(invoiceTemplate);
+                              setShowGallery(false);
+                            }}
+                            className="w-full py-1.5 bg-violet-50 text-violet-700 font-bold rounded-xl text-[10px] hover:bg-violet-600 hover:text-white transition-all border border-violet-100 shadow-sm"
+                          >
+                            Apply Layout
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Card 4: Welcome Email */}
+                      <div className="border border-gray-100 rounded-2xl overflow-hidden hover:border-violet-300 hover:shadow-md hover:scale-[1.02] transition-all flex flex-col justify-between bg-slate-50/20 group">
+                        <div className="h-20 bg-gradient-to-tr from-emerald-500 to-teal-500 flex items-center justify-center p-3 text-center">
+                          <span className="text-white font-extrabold text-[11px] tracking-tight drop-shadow-sm">Welcome onboarding 👋</span>
+                        </div>
+                        <div className="p-3 flex-grow flex flex-col justify-between">
+                          <div className="mb-3">
+                            <h5 className="text-xs font-bold text-gray-800">Welcome Onboarding</h5>
+                            <p className="text-[10px] text-gray-400 mt-1">Green vibrant gradient header, personal greeting, and onboarding next steps.</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleLoadTemplate(welcomeTemplate);
+                              setShowGallery(false);
+                            }}
+                            className="w-full py-1.5 bg-violet-50 text-violet-700 font-bold rounded-xl text-[10px] hover:bg-violet-600 hover:text-white transition-all border border-violet-100 shadow-sm"
+                          >
+                            Apply Layout
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Card 5: Event Invitation */}
+                      <div className="border border-gray-100 rounded-2xl overflow-hidden hover:border-violet-300 hover:shadow-md hover:scale-[1.02] transition-all flex flex-col justify-between bg-slate-50/20 group">
+                        <div className="h-20 bg-gradient-to-tr from-amber-500 to-orange-500 flex items-center justify-center p-3 text-center">
+                          <span className="text-white font-extrabold text-[11px] tracking-tight drop-shadow-sm">Event Invitation 📅</span>
+                        </div>
+                        <div className="p-3 flex-grow flex flex-col justify-between">
+                          <div className="mb-3">
+                            <h5 className="text-xs font-bold text-gray-800">Event Invitation</h5>
+                            <p className="text-[10px] text-gray-400 mt-1">Warm orange calendar theme, schedule list table, and big RSVP action button.</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleLoadTemplate(eventTemplate);
+                              setShowGallery(false);
+                            }}
+                            className="w-full py-1.5 bg-violet-50 text-violet-700 font-bold rounded-xl text-[10px] hover:bg-violet-600 hover:text-white transition-all border border-violet-100 shadow-sm"
+                          >
+                            Apply Layout
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Card 6: Re-engagement */}
+                      <div className="border border-gray-100 rounded-2xl overflow-hidden hover:border-violet-300 hover:shadow-md hover:scale-[1.02] transition-all flex flex-col justify-between bg-slate-50/20 group">
+                        <div className="h-20 bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center p-3 text-center">
+                          <span className="text-white font-extrabold text-[11px] tracking-tight drop-shadow-sm">We Miss You 💜</span>
+                        </div>
+                        <div className="p-3 flex-grow flex flex-col justify-between">
+                          <div className="mb-3">
+                            <h5 className="text-xs font-bold text-gray-800">Re-engagement</h5>
+                            <p className="text-[10px] text-gray-400 mt-1">Sunset violet theme, discount/comeback offer banner, and a comeback call-to-action.</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleLoadTemplate(reengageTemplate);
                               setShowGallery(false);
                             }}
                             className="w-full py-1.5 bg-violet-50 text-violet-700 font-bold rounded-xl text-[10px] hover:bg-violet-600 hover:text-white transition-all border border-violet-100 shadow-sm"
@@ -738,6 +1112,44 @@ export function TemplatePage({
               )}
             </div>
 
+            {/* Spam Score Checker Panel */}
+            {showSpamChecker && (
+              <div className="p-4 bg-slate-50 border-b border-gray-100 animate-fade-in space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Deliverability Score:</span>
+                    <span className={`px-2 py-0.5 rounded text-xs font-extrabold ${
+                      spamScore < 3 ? "bg-green-100 text-green-700" : spamScore < 6 ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700"
+                    }`}>
+                      {spamScore} / 10
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => setShowSpamChecker(false)}
+                    className="text-gray-400 hover:text-gray-600 text-xs font-semibold"
+                  >
+                    Close
+                  </button>
+                </div>
+                <div className="text-xs text-gray-500">
+                  {spamFlags.length === 0 ? (
+                    <span className="text-green-600 font-medium">✓ No spam trigger words found! Excellent template.</span>
+                  ) : (
+                    <div>
+                      <span className="text-amber-600 font-medium">Flagged words found ({spamFlags.length}): </span>
+                      <div className="flex flex-wrap gap-1.5 mt-1">
+                        {spamFlags.map(w => (
+                          <span key={w} className="px-2 py-0.5 bg-red-50 text-red-600 border border-red-100 rounded-md text-[10px] font-mono font-semibold">
+                            {w}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* Composer Footer (Action / "Send" Bar) */}
             <div className="flex items-center justify-between px-4 py-3 bg-slate-50/80">
               <div className="flex items-center gap-3">
@@ -767,27 +1179,40 @@ export function TemplatePage({
               <h3 className="font-bold text-gray-800 flex items-center gap-2 text-sm">
                 <Icon name="eye" size={16} className="text-violet-600" /> Live Recipient Preview
               </h3>
-              {data && (
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setPreviewIndex(Math.max(0, previewIndex - 1))}
-                    className="w-7 h-7 rounded-lg border border-gray-200 flex items-center justify-center text-gray-500 hover:bg-gray-50 transition-colors text-xs font-bold disabled:opacity-50"
-                    disabled={previewIndex === 0}
-                  >
-                    ‹
-                  </button>
-                  <span className="text-xs font-mono font-bold text-gray-500">
-                    {previewIndex + 1}/{data.length}
-                  </span>
-                  <button
-                    onClick={() => setPreviewIndex(Math.min((data?.length || 1) - 1, previewIndex + 1))}
-                    className="w-7 h-7 rounded-lg border border-gray-200 flex items-center justify-center text-gray-500 hover:bg-gray-50 transition-colors text-xs font-bold disabled:opacity-50"
-                    disabled={previewIndex === data.length - 1}
-                  >
-                    ›
-                  </button>
-                </div>
-              )}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setDarkModePreview(!darkModePreview)}
+                  className={`px-2 py-1 rounded-lg border text-[10px] font-bold transition-all ${
+                    darkModePreview
+                      ? "bg-slate-800 text-white border-slate-700 shadow-sm"
+                      : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
+                  }`}
+                >
+                  {darkModePreview ? "☀️ Light" : "🌙 Dark"}
+                </button>
+                {data && (
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => setPreviewIndex(Math.max(0, previewIndex - 1))}
+                      className="w-7 h-7 rounded-lg border border-gray-200 flex items-center justify-center text-gray-500 hover:bg-gray-50 transition-colors text-xs font-bold disabled:opacity-50"
+                      disabled={previewIndex === 0}
+                    >
+                      ‹
+                    </button>
+                    <span className="text-xs font-mono font-bold text-gray-500">
+                      {previewIndex + 1}/{data.length}
+                    </span>
+                    <button
+                      onClick={() => setPreviewIndex(Math.min((data?.length || 1) - 1, previewIndex + 1))}
+                      className="w-7 h-7 rounded-lg border border-gray-200 flex items-center justify-center text-gray-500 hover:bg-gray-50 transition-colors text-xs font-bold disabled:opacity-50"
+                      disabled={previewIndex === data.length - 1}
+                    >
+                      ›
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Unified Email Client View */}
@@ -811,10 +1236,13 @@ export function TemplatePage({
               </div>
 
               {/* Body Content */}
-              <div className="px-5 py-6 min-h-[180px] max-h-[300px] overflow-y-auto border-b border-gray-50">
+              <div className={`px-5 py-6 min-h-[180px] max-h-[300px] overflow-y-auto border-b border-gray-50 transition-all ${
+                darkModePreview ? "bg-slate-900" : "bg-white"
+              }`}>
                 {data ? (
                   <div
                     className="text-sm text-gray-700 leading-relaxed ql-editor p-0"
+                    style={darkModePreview ? { filter: "invert(1) hue-rotate(180deg)", background: "#000" } : {}}
                     dangerouslySetInnerHTML={{ __html: previewBody }}
                   />
                 ) : (

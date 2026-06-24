@@ -132,3 +132,21 @@ CREATE TABLE IF NOT EXISTS scheduled_jobs (
 
 CREATE INDEX IF NOT EXISTS idx_scheduled_status ON scheduled_jobs(status, schedule_time);
 CREATE INDEX IF NOT EXISTS idx_scheduled_tenant  ON scheduled_jobs(tenant_id);
+
+-- ============================================================
+-- ADDITIVE MIGRATIONS — safe to run on every startup
+-- ============================================================
+
+-- Click tracking: store which URL was clicked in tracking events
+ALTER TABLE tracking_events ADD COLUMN IF NOT EXISTS link_url TEXT;
+
+-- Campaign labels: color-coded label per campaign for History view
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS label VARCHAR(50) DEFAULT NULL;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS label_color VARCHAR(20) DEFAULT 'blue';
+
+-- Campaign body storage: enables draft restore and campaign duplication
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS body_with    TEXT DEFAULT NULL;
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS body_without TEXT DEFAULT NULL;
+
+-- SMTP Locking: Admin can lock SMTP credentials for clients
+ALTER TABLE smtp_credentials ADD COLUMN IF NOT EXISTS locked_by_admin BOOLEAN DEFAULT FALSE;

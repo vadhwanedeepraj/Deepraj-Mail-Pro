@@ -20,10 +20,21 @@ export function useApi() {
     try {
       const response = await fetch(url, { ...options, headers });
 
-      // Globally handle 401 / 403 credentials expire
-      if (response.status === 401 || response.status === 403) {
+      // 401 = no/invalid token → force logout
+      if (response.status === 401) {
         logout();
         let errorMsg = "Session expired — please log in again";
+        try {
+          const json = await response.json();
+          if (json.message) errorMsg = json.message;
+        } catch (_) {}
+        throw new Error(errorMsg);
+      }
+
+      // 403 = authenticated but access denied (e.g. client hitting admin route)
+      // Do NOT logout — just surface the error message to the component
+      if (response.status === 403) {
+        let errorMsg = "Access denied";
         try {
           const json = await response.json();
           if (json.message) errorMsg = json.message;

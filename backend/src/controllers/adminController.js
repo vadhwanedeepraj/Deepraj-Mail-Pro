@@ -196,6 +196,7 @@ async function deleteClient(req, res, next) {
     );
 
     if (userRows.length === 0) {
+      client.release(); // ← FIXED: release before early return to prevent connection leak
       return res.status(404).json({ success: false, message: "Client not found" });
     }
 

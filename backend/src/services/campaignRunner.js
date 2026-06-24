@@ -10,7 +10,26 @@ const { decrypt } = require("./encryptionService");
 const activeCampaigns = new Map();
 const activeCancellations = new Set();
 
-const isValidEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
+const isValidEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(e).trim());
+
+/**
+ * Wraps all <a href="url"> links in the HTML with a click-tracking redirect URL.
+ * The original URL is base64-encoded as a query param to avoid nesting issues.
+ */
+function wrapLinksForClickTracking(html, backendHost, tenantId, campaignId, recipientEmail) {
+  return html.replace(
+    /href="(https?:\/\/[^"]+)"/gi,
+    (match, originalUrl) => {
+      // Skip if it's already a tracking or unsubscribe URL
+      if (originalUrl.includes('/api/track/') || originalUrl.includes('/api/unsubscribe/')) {
+        return match;
+      }
+      const encoded = Buffer.from(originalUrl).toString('base64');
+      const trackUrl = `${backendHost}/api/track/click/${tenantId}/${campaignId}/${encodeURIComponent(recipientEmail)}?url=${encoded}`;
+      return `href="${trackUrl}"`;
+    }
+  );
+}
 
 /**
  * Runs the email campaign, sending emails, saving results, and tracking progress.
@@ -37,16 +56,31 @@ async function runCampaign(payload, sendEvent = () => {}) {
   const parsedRecipients = JSON.parse(recipients || "[]");
   const VERCEL_PROXY_URL = vercelProxyUrl || "https://email-proxy-one.vercel.app/api/send";
 
-  // 1. Retrieve and decrypt SMTP credentials
-  const { rows: smtpRows } = await pool.query(
-    "SELECT smtp_email, encrypted_pass, iv, auth_tag FROM smtp_credentials WHERE tenant_id = $1 LIMIT 1",
-    [tenantId]
-  );
-  if (smtpRows.length === 0) {
-    throw new Error("No SMTP credentials configured. Please set them up in Settings first.");
+  // 1. Retrieve SMTP credentials (DB-stored or session-only)
+  let smtp_email, decryptedPassword;
+
+  if (payload.sessionSmtpEmail && payload.sessionSmtpPassword) {
+    // Client provided session-only credentials (not saved to DB)
+    smtp_email = payload.sessionSmtpEmail;
+    decryptedPassword = payload.sessionSmtpPassword;
+    // SECURITY: Never log the password — only log the email address
+    logger.info("Using session-only SMTP credentials for campaign", {
+      campaignId,
+      tenantId,
+      smtpEmail: smtp_email  // ← safe: only email, password omitted
+    });
+  } else {
+    // Fetch from DB (admin-locked or admin's own saved creds)
+    const { rows: smtpRows } = await pool.query(
+      "SELECT smtp_email, encrypted_pass, iv, auth_tag FROM smtp_credentials WHERE tenant_id = $1 LIMIT 1",
+      [tenantId]
+    );
+    if (smtpRows.length === 0) {
+      throw new Error("No SMTP credentials configured. Please set them up in Settings first.");
+    }
+    smtp_email = smtpRows[0].smtp_email;
+    decryptedPassword = decrypt(smtpRows[0].encrypted_pass, smtpRows[0].iv, smtpRows[0].auth_tag);
   }
-  const { smtp_email, encrypted_pass, iv, auth_tag } = smtpRows[0];
-  const decryptedPassword = decrypt(encrypted_pass, iv, auth_tag);
 
   // 2. Track in-memory active campaign details
   activeCampaigns.set(campaignId, {
@@ -60,11 +94,13 @@ async function runCampaign(payload, sendEvent = () => {}) {
     status: "sending"
   });
 
-  // 3. Create campaign record in PostgreSQL
+  // 3. Create campaign record in PostgreSQL (store body for duplication/draft restore)
+  const bodyWithStr   = typeof payload.bodyWith   === 'string' ? payload.bodyWith   : null;
+  const bodyWithoutStr= typeof payload.bodyWithout === 'string' ? payload.bodyWithout : null;
   await pool.query(
-    `INSERT INTO campaigns (id, tenant_id, subject, total_recipients, sent, failed, status)
-     VALUES ($1, $2, $3, $4, 0, 0, 'running')`,
-    [campaignId, tenantId, subject, parsedRecipients.length]
+    `INSERT INTO campaigns (id, tenant_id, subject, total_recipients, sent, failed, status, body_with, body_without)
+     VALUES ($1, $2, $3, $4, 0, 0, 'running', $5, $6)`,
+    [campaignId, tenantId, subject, parsedRecipients.length, bodyWithStr, bodyWithoutStr]
   );
 
   // 4. Fetch unsubscribe list for tenant isolation
@@ -158,9 +194,12 @@ async function runCampaign(payload, sendEvent = () => {}) {
     // Tracking/Unsubscribe Links
     const pixelUrl = `${backendHost}/api/track/open/${tenantId}/${campaignId}/${encodeURIComponent(to)}`;
     const unsubUrl = `${backendHost}/api/unsubscribe/${tenantId}?email=${encodeURIComponent(to)}`;
-    
+
+    // Wrap all links for click tracking
+    const linkWrappedHtml = wrapLinksForClickTracking(renderedHtml, backendHost, tenantId, campaignId, to);
+
     const unsubFooter = `<div style="margin-top:40px;padding-top:20px;border-top:1px solid #e5e7eb;font-size:12px;color:#9ca3af;text-align:center;"><p><a href="${unsubUrl}" style="color:#6b7280;text-decoration:underline;">Unsubscribe</a></p></div>`;
-    const trackedHtml = `${renderedHtml}${unsubFooter}<img src="${pixelUrl}" width="1" height="1" style="display:none;" />`;
+    const trackedHtml = `${linkWrappedHtml}${unsubFooter}<img src="${pixelUrl}" width="1" height="1" style="display:none;" />`;
 
     let pdfAttachment = undefined;
     if (attachPath) {

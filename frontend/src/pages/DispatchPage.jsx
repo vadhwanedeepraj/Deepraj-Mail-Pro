@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useAuth } from "../context/AuthContext";
 import { Card } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
@@ -21,6 +21,8 @@ export function DispatchPage({
   bcc,
   rateLimit,
   senderEmail,
+  sessionSmtpEmail,
+  sessionSmtpPassword,
   onBack,
   onNavigateToHistory
 }) {
@@ -38,6 +40,13 @@ export function DispatchPage({
   const [activeCampaignSubject, setActiveCampaignSubject] = useState("");
   const [activeCurrentEmail, setActiveCurrentEmail] = useState("");
   const [isCancelling, setIsCancelling] = useState(false);
+
+  // Alert state — must be declared before any hooks or handlers that call showAlert
+  const [alertState, setAlertState] = useState({ isOpen: false, title: "", message: "", type: "info" });
+
+  const showAlert = (title, message, type = "info") => {
+    setAlertState({ isOpen: true, title, message, type });
+  };
 
   // Poll for active background campaigns to recover state dynamically
   useEffect(() => {
@@ -105,11 +114,6 @@ export function DispatchPage({
     }
   };
 
-  const [alertState, setAlertState] = useState({ isOpen: false, title: "", message: "", type: "info" });
-
-  const showAlert = (title, message, type = "info") => {
-    setAlertState({ isOpen: true, title, message, type });
-  };
 
   // Pre-flight Audit list
   const audit = data
@@ -130,8 +134,18 @@ export function DispatchPage({
   const validCount = audit.filter((r) => r.valid).length;
   const matchedCount = audit.filter((r) => r.pdfMatch === "Matched ✓").length;
 
+  // ── Preflight gate ─────────────────────────────────────────────────────────
+  const preflightChecks = [
+    { ok: !!data && data.length > 0, label: "Recipients loaded" },
+    { ok: validCount > 0,            label: `At least 1 valid email (${validCount} valid)` },
+    { ok: !!subject?.trim(),         label: "Email subject is set" },
+    { ok: !!senderEmail,             label: "Sender SMTP configured" },
+  ];
+  const canDispatch = preflightChecks.every(c => c.ok) && !sending;
+  const failedChecks = preflightChecks.filter(c => !c.ok);
+
   const handleDispatch = async () => {
-    if (!data) return;
+    if (!data || !canDispatch) return;
     setSending(true);
     setSendResults([]);
     setSendLog([]);
@@ -145,6 +159,12 @@ export function DispatchPage({
     formData.append("bodyWithout", bodyWithout);
     formData.append("rateLimit", rateLimit !== undefined ? rateLimit : 0.5);
     formData.append("vercelProxyUrl", window.location.origin + "/api/send");
+
+    // Pass session-only SMTP credentials for clients who haven't had admin lock them
+    if (sessionSmtpEmail && sessionSmtpPassword) {
+      formData.append("sessionSmtpEmail", sessionSmtpEmail);
+      formData.append("sessionSmtpPassword", sessionSmtpPassword);
+    }
     
     if (scheduleTime) {
       formData.append("scheduleTime", new Date(scheduleTime).toISOString());
@@ -324,33 +344,64 @@ export function DispatchPage({
           <span>Upload recipient data first</span>
         </div>
       )}
-      {!senderEmail && (
-        <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-700 flex gap-2">
-          <Icon name="alert" size={16} />
-          <span>Configure SMTP settings first</span>
-        </div>
+      {/* Preflight Checklist */}
+      {!sending && sendResults.length === 0 && !scheduledSuccess && (
+        <Card className={`border-2 ${canDispatch ? "border-green-200 bg-green-50/50" : "border-amber-200 bg-amber-50/50"}`}>
+          <h3 className="font-semibold text-gray-800 mb-3 flex items-center gap-2">
+            <Icon name={canDispatch ? "check" : "alert"} size={16} className={canDispatch ? "text-green-600" : "text-amber-600"} />
+            Pre-launch Checklist
+          </h3>
+          <div className="space-y-2">
+            {preflightChecks.map((c, i) => (
+              <div key={i} className="flex items-center gap-2 text-sm">
+                <span className={`w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0 text-[10px] font-bold ${c.ok ? "bg-green-100 text-green-700" : "bg-red-100 text-red-600"}`}>
+                  {c.ok ? "✓" : "✗"}
+                </span>
+                <span className={c.ok ? "text-gray-700" : "text-red-600 font-medium"}>{c.label}</span>
+              </div>
+            ))}
+          </div>
+          {!canDispatch && failedChecks.length > 0 && (
+            <p className="mt-3 text-xs text-amber-700 font-medium">
+              ↑ Fix the items above to enable launch. Go back to the required step to complete setup.
+            </p>
+          )}
+        </Card>
       )}
 
       {/* Launch Action Card */}
-      {data && senderEmail && !sending && sendResults.length === 0 && !scheduledSuccess && (
+      {!sending && sendResults.length === 0 && !scheduledSuccess && (
         <Card className="text-center py-8">
-          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center mx-auto mb-4 shadow-lg shadow-blue-200">
-            <Icon name="rocket" size={28} className="text-white" />
+          <div className={`w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg ${canDispatch ? "bg-gradient-to-br from-blue-500 to-violet-600 shadow-blue-200" : "bg-gray-200 shadow-gray-100"}`}>
+            <Icon name="rocket" size={28} className={canDispatch ? "text-white" : "text-gray-400"} />
           </div>
-          <h3 className="text-lg font-bold text-gray-900 mb-2">Ready to launch</h3>
-          <p className="text-gray-500 text-sm mb-6">{validCount} emails · {matchedCount} with PDF · {rateLimit}s delay</p>
+          <h3 className="text-lg font-bold text-gray-900 mb-2">
+            {canDispatch ? "Ready to launch" : "Setup incomplete"}
+          </h3>
+          <p className="text-gray-500 text-sm mb-6">
+            {canDispatch
+              ? `${validCount} emails · ${matchedCount} with PDF · ${rateLimit}s delay`
+              : "Complete the checklist above before launching."}
+          </p>
 
-          <div className="max-w-xs mx-auto mb-6 text-left">
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Schedule Delivery (Optional)</label>
-            <input
-              type="datetime-local"
-              value={scheduleTime}
-              onChange={(e) => setScheduleTime(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
+          {canDispatch && (
+            <div className="max-w-xs mx-auto mb-6 text-left">
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">Schedule Delivery (Optional)</label>
+              <input
+                type="datetime-local"
+                value={scheduleTime}
+                onChange={(e) => setScheduleTime(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          )}
 
-          <Button onClick={handleDispatch} className="mx-auto" icon={<Icon name={scheduleTime ? "history" : "send"} size={16} />}>
+          <Button
+            onClick={handleDispatch}
+            className="mx-auto"
+            disabled={!canDispatch}
+            icon={<Icon name={scheduleTime ? "history" : "send"} size={16} />}
+          >
             {scheduleTime ? "Schedule Campaign" : "Launch Campaign Now"}
           </Button>
         </Card>

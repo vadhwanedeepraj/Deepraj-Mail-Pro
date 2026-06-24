@@ -7,7 +7,8 @@ const { authenticateToken } = require("../middleware/auth");
 const { apiLimiter } = require("../middleware/rateLimiter");
 
 // Public endpoints (no auth needed)
-router.get("/track/open/:tenantId/:campaignId/:email", trackingController.trackOpen);
+router.get("/track/open/:tenantId/:campaignId/:email",  trackingController.trackOpen);
+router.get("/track/click/:tenantId/:campaignId/:email", trackingController.trackClick);
 router.get("/unsubscribe/:tenantId", trackingController.unsubscribe);
 
 // Protected endpoints (requires auth token)

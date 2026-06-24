@@ -7,6 +7,10 @@ import { Badge } from "../components/ui/Badge";
 import { Icon } from "../components/ui/Icon";
 import { ConfirmModal, PromptModal, AlertModal } from "../components/ui/Modal";
 
+// Embedded sub-pages for Client Insights
+import HistoryPage from "./HistoryPage";
+import AnalyticsPage from "./AnalyticsPage";
+
 export function AdminPanel({ backendUrl }) {
   const { request } = useApi();
   
@@ -25,6 +29,19 @@ export function AdminPanel({ backendUrl }) {
   
   const [selectedCampaignId, setSelectedCampaignId] = useState(null);
   const [isCancelOpen, setIsCancelOpen] = useState(false);
+
+  // SMTP Management Modal
+  const [isSmtpOpen, setIsSmtpOpen] = useState(false);
+  const [smtpTarget, setSmtpTarget] = useState(null);
+  const [smtpEmail, setSmtpEmail] = useState("");
+  const [smtpPassword, setSmtpPassword] = useState("");
+  const [smtpSaving, setSmtpSaving] = useState(false);
+  const [smtpStatus, setSmtpStatus] = useState({ saved: false, email: "", lockedByAdmin: false });
+  const [smtpStatusLoading, setSmtpStatusLoading] = useState(false);
+
+  // Client Insights
+  const [insightsClient, setInsightsClient] = useState(null);
+  const [insightsTab, setInsightsTab] = useState("history"); // "history" | "analytics"
 
   const [alertState, setAlertState] = useState({ isOpen: false, title: "", message: "", type: "info" });
 
@@ -54,8 +71,31 @@ export function AdminPanel({ backendUrl }) {
   useEffect(() => {
     fetchClients();
     pollActiveCampaigns();
-    const interval = setInterval(pollActiveCampaigns, 3000);
-    return () => clearInterval(interval);
+
+    let interval = null;
+
+    const startPolling = () => {
+      if (interval) return;
+      interval = setInterval(pollActiveCampaigns, 3000);
+    };
+
+    const stopPolling = () => {
+      if (interval) { clearInterval(interval); interval = null; }
+    };
+
+    // Only run interval while tab is visible
+    const handleVisibility = () => {
+      if (document.visibilityState === "hidden") stopPolling();
+      else { pollActiveCampaigns(); startPolling(); }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibility);
+    startPolling();
+
+    return () => {
+      stopPolling();
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
   }, [fetchClients, pollActiveCampaigns]);
 
   const handleCreateClient = async (e) => {
@@ -144,6 +184,57 @@ export function AdminPanel({ backendUrl }) {
       });
       showAlert("Cancelled", "Cancellation request submitted successfully.", "success");
       pollActiveCampaigns();
+    } catch (err) {
+      showAlert("Error", err.message, "error");
+    }
+  };
+
+  // ─── SMTP Management Handlers ──────────────────────────────────────────────
+  const openSmtpModal = async (client) => {
+    setSmtpTarget(client);
+    setSmtpEmail("");
+    setSmtpPassword("");
+    setIsSmtpOpen(true);
+    setSmtpStatusLoading(true);
+    try {
+      const data = await request(`${backendUrl}/api/smtp/admin-status/${client.id}`);
+      setSmtpStatus(data);
+    } catch (_) {
+      setSmtpStatus({ saved: false, email: "", lockedByAdmin: false });
+    } finally {
+      setSmtpStatusLoading(false);
+    }
+  };
+
+  const handleAdminSaveSmtp = async () => {
+    if (!smtpEmail || !smtpPassword) {
+      showAlert("Validation Error", "SMTP email and app password are required.", "warning");
+      return;
+    }
+    setSmtpSaving(true);
+    try {
+      await request(`${backendUrl}/api/smtp/admin-save/${smtpTarget.id}`, {
+        method: "POST",
+        body: JSON.stringify({ email: smtpEmail, password: smtpPassword })
+      });
+      showAlert("SMTP Locked", `SMTP credentials locked for ${smtpTarget.email}`, "success");
+      setIsSmtpOpen(false);
+      fetchClients();
+    } catch (err) {
+      showAlert("Error", err.message, "error");
+    } finally {
+      setSmtpSaving(false);
+    }
+  };
+
+  const handleAdminDeleteSmtp = async () => {
+    try {
+      await request(`${backendUrl}/api/smtp/admin-delete/${smtpTarget.id}`, {
+        method: "DELETE"
+      });
+      showAlert("SMTP Cleared", `SMTP credentials cleared for ${smtpTarget.email}`, "success");
+      setIsSmtpOpen(false);
+      fetchClients();
     } catch (err) {
       showAlert("Error", err.message, "error");
     }
@@ -265,7 +356,7 @@ export function AdminPanel({ backendUrl }) {
                           {c.createdAt ? new Date(c.createdAt).toLocaleDateString() : "—"}
                         </td>
                         <td className="px-4 py-3 text-right">
-                          <div className="inline-flex items-center gap-1.5">
+                          <div className="inline-flex items-center gap-1.5 flex-wrap justify-end">
                             <button
                               onClick={() => handleToggleStatus(c)}
                               className={`text-xs font-semibold px-2 py-1 rounded-lg border transition-colors ${
@@ -293,6 +384,21 @@ export function AdminPanel({ backendUrl }) {
                               className="text-xs font-semibold px-2 py-1 rounded-lg border bg-violet-50 text-violet-700 border-violet-200 hover:bg-violet-100 transition-colors"
                             >
                               Reset Pass
+                            </button>
+                            <button
+                              onClick={() => openSmtpModal(c)}
+                              className="text-xs font-semibold px-2 py-1 rounded-lg border bg-cyan-50 text-cyan-700 border-cyan-200 hover:bg-cyan-100 transition-colors"
+                            >
+                              SMTP
+                            </button>
+                            <button
+                              onClick={() => {
+                                setInsightsClient(c);
+                                setInsightsTab("history");
+                              }}
+                              className="text-xs font-semibold px-2 py-1 rounded-lg border bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 transition-colors"
+                            >
+                              Insights
                             </button>
                             <button
                               onClick={() => {
@@ -378,6 +484,179 @@ export function AdminPanel({ backendUrl }) {
           </div>
         )}
       </Card>
+
+      {/* ─── Client Insights Section ──────────────────────────────────────────── */}
+      <Card>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-bold text-gray-800 flex items-center gap-2">
+            <Icon name="eye" size={16} className="text-emerald-600" /> Client Insights
+          </h3>
+          <div className="flex items-center gap-3">
+            <select
+              value={insightsClient?.id || ""}
+              onChange={(e) => {
+                const client = clientList.find(c => c.id === e.target.value);
+                setInsightsClient(client || null);
+              }}
+              className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none min-w-[200px]"
+            >
+              <option value="">Select a client…</option>
+              {clientList.map(c => (
+                <option key={c.id} value={c.id}>{c.email}</option>
+              ))}
+            </select>
+            {insightsClient && (
+              <button
+                onClick={() => setInsightsClient(null)}
+                className="text-xs text-gray-400 hover:text-gray-600"
+                title="Clear selection"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+        </div>
+
+        {!insightsClient ? (
+          <div className="py-12 text-center text-gray-400 text-sm flex flex-col items-center gap-2">
+            <Icon name="users" size={28} className="text-gray-300" />
+            <p>Select a client from the dropdown to view their campaign history and analytics.</p>
+          </div>
+        ) : (
+          <div className="animate-fade-in">
+            {/* Client Info Banner */}
+            <div className="mb-4 p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0">
+                <Icon name="eye" size={16} className="text-emerald-600" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-emerald-800">
+                  Viewing data for: {insightsClient.email}
+                </p>
+                <p className="text-xs text-emerald-600">Tenant ID: {insightsClient.tenantId}</p>
+              </div>
+            </div>
+
+            {/* Sub-tabs: History | Analytics */}
+            <div className="flex gap-1 mb-4 bg-gray-100 rounded-lg p-1 w-fit">
+              <button
+                onClick={() => setInsightsTab("history")}
+                className={`px-4 py-1.5 rounded-md text-sm font-semibold transition-all ${
+                  insightsTab === "history"
+                    ? "bg-white text-gray-800 shadow-sm"
+                    : "text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                Campaign History
+              </button>
+              <button
+                onClick={() => setInsightsTab("analytics")}
+                className={`px-4 py-1.5 rounded-md text-sm font-semibold transition-all ${
+                  insightsTab === "analytics"
+                    ? "bg-white text-gray-800 shadow-sm"
+                    : "text-gray-500 hover:text-gray-700"
+                }`}
+              >
+                Analytics
+              </button>
+            </div>
+
+            {/* Embedded Pages */}
+            <div className="border border-gray-100 rounded-xl p-4 bg-white">
+              {insightsTab === "history" ? (
+                <HistoryPage
+                  backendUrl={backendUrl}
+                  clientTenantId={insightsClient.tenantId}
+                  clientEmail={insightsClient.email}
+                  onDuplicate={() => {}}
+                />
+              ) : (
+                <AnalyticsPage
+                  backendUrl={backendUrl}
+                  clientTenantId={insightsClient.tenantId}
+                  clientEmail={insightsClient.email}
+                />
+              )}
+            </div>
+          </div>
+        )}
+      </Card>
+
+      {/* ─── SMTP Management Modal ─────────────────────────────────────────── */}
+      {isSmtpOpen && smtpTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
+            <div className="p-6 border-b border-gray-100">
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-gray-800 flex items-center gap-2">
+                  <Icon name="mail" size={16} className="text-cyan-600" /> SMTP for {smtpTarget.email}
+                </h3>
+                <button onClick={() => setIsSmtpOpen(false)} className="text-gray-400 hover:text-gray-600 text-lg">✕</button>
+              </div>
+            </div>
+            <div className="p-6 space-y-4">
+              {smtpStatusLoading ? (
+                <div className="py-8 flex justify-center">
+                  <div className="w-6 h-6 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : smtpStatus.saved ? (
+                <div className="space-y-4">
+                  <div className="p-4 bg-green-50 border border-green-200 rounded-xl flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
+                      <Icon name="lock" size={16} className="text-green-600" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-green-800">🔒 SMTP Locked</p>
+                      <p className="text-xs text-green-600 truncate">Sender: {smtpStatus.email}</p>
+                    </div>
+                  </div>
+                  <p className="text-xs text-gray-500">
+                    This client's SMTP is managed by you (admin). They see locked credentials and cannot modify them.
+                  </p>
+                  <div className="flex gap-3">
+                    <Button onClick={handleAdminDeleteSmtp} variant="danger" className="flex-1 justify-center text-xs">
+                      Unlock & Clear
+                    </Button>
+                    <Button onClick={() => setIsSmtpOpen(false)} variant="secondary" className="flex-1 justify-center text-xs">
+                      Close
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="p-3 bg-amber-50 rounded-xl border border-amber-200">
+                    <p className="text-xs text-amber-700">
+                      <strong>No SMTP locked.</strong> This client must enter their own credentials each session, or you can lock SMTP for them below.
+                    </p>
+                  </div>
+                  <Input
+                    label="Gmail SMTP Address"
+                    type="email"
+                    placeholder="sender@gmail.com"
+                    value={smtpEmail}
+                    onChange={(e) => setSmtpEmail(e.target.value)}
+                  />
+                  <Input
+                    label="Gmail App Password"
+                    type="password"
+                    placeholder="xxxx xxxx xxxx xxxx"
+                    value={smtpPassword}
+                    onChange={(e) => setSmtpPassword(e.target.value)}
+                  />
+                  <div className="flex gap-3">
+                    <Button onClick={handleAdminSaveSmtp} loading={smtpSaving} className="flex-1 justify-center">
+                      🔒 Lock SMTP
+                    </Button>
+                    <Button onClick={() => setIsSmtpOpen(false)} variant="secondary" className="flex-1 justify-center text-xs">
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MODALS */}
       <ConfirmModal

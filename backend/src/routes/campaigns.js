@@ -13,10 +13,14 @@ const upload = multer({ dest: os.tmpdir() });
 
 router.use(authenticateToken);
 
-router.post("/send-bulk", sendLimiter, upload.fields([{ name: "attachments" }]), campaignController.sendBulk);
-router.get("/campaigns/active", apiLimiter, campaignController.getActive);
-router.get("/campaigns", apiLimiter, campaignController.getCampaigns);
-router.get("/campaigns/:id", apiLimiter, campaignController.getCampaignDetails);
-router.post("/campaigns/:id/cancel", apiLimiter, campaignController.cancel);
+router.post("/send-bulk",    sendLimiter, upload.fields([{ name: "attachments" }]), campaignController.sendBulk);
+router.post("/send-test",    sendLimiter, campaignController.sendTest);
+router.get("/campaigns/active",          apiLimiter, campaignController.getActive);
+router.get("/campaigns",                 apiLimiter, campaignController.getCampaigns);
+router.get("/campaigns/:id",             apiLimiter, campaignController.getCampaignDetails);
+router.post("/campaigns/:id/cancel",     apiLimiter, campaignController.cancel);
+router.post("/campaigns/:id/duplicate",  apiLimiter, campaignController.duplicateCampaign);
+router.patch("/campaigns/:id/label",     apiLimiter, campaignController.updateCampaignLabel);
 
 module.exports = router;
+

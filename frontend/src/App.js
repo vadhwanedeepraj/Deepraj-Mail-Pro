@@ -50,6 +50,10 @@ function MainAppShell() {
   const [rateLimit, setRateLimit] = useState(0.5);
   const [previewIndex, setPreviewIndex] = useState(0);
 
+  // Session-only SMTP credentials for clients (not saved to DB, cleared on refresh)
+  const [sessionSmtpEmail, setSessionSmtpEmail] = useState("");
+  const [sessionSmtpPassword, setSessionSmtpPassword] = useState("");
+
   // Keep-alive ping to prevent Render free-tier from sleeping
   useEffect(() => {
     const backendUrl = (process.env.REACT_APP_BACKEND_URL || window.location.origin).replace(/\/+$/, "");
@@ -120,6 +124,7 @@ function MainAppShell() {
               setPreviewIndex={setPreviewIndex}
               onBack={() => setTab("data")}
               onNext={() => setTab("settings")}
+              backendUrl={BACKEND_URL}
             />
           )}
 
@@ -134,6 +139,10 @@ function MainAppShell() {
               setRateLimit={setRateLimit}
               senderEmail={senderEmail}
               setSenderEmail={setSenderEmail}
+              sessionSmtpEmail={sessionSmtpEmail}
+              setSessionSmtpEmail={setSessionSmtpEmail}
+              sessionSmtpPassword={sessionSmtpPassword}
+              setSessionSmtpPassword={setSessionSmtpPassword}
               onBack={() => setTab("template")}
               onNext={() => setTab("dispatch")}
             />
@@ -154,13 +163,23 @@ function MainAppShell() {
               bcc={bcc}
               rateLimit={rateLimit}
               senderEmail={senderEmail}
+              sessionSmtpEmail={sessionSmtpEmail}
+              sessionSmtpPassword={sessionSmtpPassword}
               onBack={() => setTab("settings")}
               onNavigateToHistory={() => setTab("history")}
             />
           )}
 
           {tab === "history" && (
-            <HistoryPage backendUrl={BACKEND_URL} />
+            <HistoryPage
+              backendUrl={BACKEND_URL}
+              onDuplicate={(campaign) => {
+                setSubject(campaign.subject);
+                setBodyWith(campaign.body_with || "");
+                setBodyWithout(campaign.body_without || "");
+                setTab("template");
+              }}
+            />
           )}
 
           {tab === "analytics" && (

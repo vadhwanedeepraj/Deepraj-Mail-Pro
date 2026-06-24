@@ -54,18 +54,28 @@ async function sendEmailWithBypass({
     if (useProxy) {
       logger.info("Routing email dispatch via Vercel Serverless Proxy", { to, proxy: effectiveProxyUrl });
 
-      // Use Node 18 built-in fetch (no node-fetch import needed)
-      const response = await fetch(effectiveProxyUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          // ISSUE-08 Fix: Authenticate with the proxy using shared secret
-          "X-Proxy-Secret": PROXY_SECRET,
-        },
-        body: JSON.stringify({
-          email, password, to, cc, bcc, subject, text, html, attachments, verifyOnly
-        })
-      });
+      // Use Node 18 built-in fetch with a 25-second timeout so that
+      // Vercel serverless cold-starts or SMTP hangs fail fast and allow retries.
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 25000);
+
+      let response;
+      try {
+        response = await fetch(effectiveProxyUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            // ISSUE-08 Fix: Authenticate with the proxy using shared secret
+            "X-Proxy-Secret": PROXY_SECRET,
+          },
+          body: JSON.stringify({
+            email, password, to, cc, bcc, subject, text, html, attachments, verifyOnly
+          }),
+          signal: controller.signal
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
 
       const responseText = await response.text();
       let json;

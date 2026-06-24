@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useAuth } from "../context/AuthContext";
 import { useApi } from "../hooks/useApi";
 import { Card } from "../components/ui/Card";
 import { Input } from "../components/ui/Input";
@@ -17,15 +18,21 @@ export function SettingsPage({
   setRateLimit,
   senderEmail,
   setSenderEmail,
+  sessionSmtpEmail,
+  setSessionSmtpEmail,
+  sessionSmtpPassword,
+  setSessionSmtpPassword,
   onBack,
   onNext
 }) {
   const { request } = useApi();
+  const { userRole } = useAuth();
+  const isAdmin = userRole === "admin";
 
-  const [savedStatus, setSavedStatus] = useState({ saved: false, email: "" });
+  const [savedStatus, setSavedStatus] = useState({ saved: false, email: "", lockedByAdmin: false });
   const [loadingStatus, setLoadingStatus] = useState(true);
 
-  // Form input fields for saving new SMTP config
+  // Admin-only: Form input fields for saving new SMTP config
   const [smtpEmailInput, setSmtpEmailInput] = useState("");
   const [smtpPasswordInput, setSmtpPasswordInput] = useState("");
   const [savingSmtp, setSavingSmtp] = useState(false);
@@ -49,12 +56,14 @@ export function SettingsPage({
       setSavedStatus(data);
       if (data.saved) {
         setSenderEmail(data.email);
-        setSmtpEmailInput(data.email);
+        if (isAdmin) {
+          setSmtpEmailInput(data.email);
+        }
       } else {
         setSenderEmail("");
       }
     } catch (_) {
-      setSavedStatus({ saved: false, email: "" });
+      setSavedStatus({ saved: false, email: "", lockedByAdmin: false });
     } finally {
       setLoadingStatus(false);
     }
@@ -64,6 +73,7 @@ export function SettingsPage({
     fetchSmtpStatus();
   }, [backendUrl]);
 
+  // Admin: Save SMTP to DB (locked)
   const handleSaveSmtp = async (e) => {
     e.preventDefault();
     if (!smtpEmailInput || !smtpPasswordInput) {
@@ -86,6 +96,7 @@ export function SettingsPage({
     }
   };
 
+  // Admin: Clear SMTP from DB
   const handleClearSmtp = async () => {
     try {
       await request(`${backendUrl}/api/smtp/delete`, {
@@ -108,27 +119,37 @@ export function SettingsPage({
       let url = "";
       let options = { method: "POST" };
 
-      if (savedStatus.saved) {
-        // Test connection using DB stored credentials
+      // Determine which credentials to use for testing
+      const hasDbCreds = savedStatus.saved;
+      const hasSessionCreds = sessionSmtpEmail && sessionSmtpPassword;
+
+      if (hasDbCreds && (isAdmin || savedStatus.lockedByAdmin)) {
+        // Admin or locked creds: test stored credentials
         url = `${backendUrl}/api/smtp/test`;
         options.body = JSON.stringify({
           testTo: testEmail || savedStatus.email,
           vercelProxyUrl: window.location.origin + "/api/send"
         });
-      } else {
-        // Test connection directly passing values from state
-        if (!smtpEmailInput || !smtpPasswordInput) {
-          showAlert("Input Required", "Please enter temporary email and password first, or save them first.", "warning");
+      } else if (hasSessionCreds || smtpEmailInput) {
+        // Client session creds or admin form input
+        const email = isAdmin ? smtpEmailInput : sessionSmtpEmail;
+        const password = isAdmin ? smtpPasswordInput : sessionSmtpPassword;
+        if (!email || !password) {
+          showAlert("Input Required", "Please enter SMTP email and password first.", "warning");
           setTestSmtpLoading(false);
           return;
         }
         url = `${backendUrl}/api/smtp/test-direct`;
         options.body = JSON.stringify({
-          email: smtpEmailInput,
-          password: smtpPasswordInput,
-          testTo: testEmail || smtpEmailInput,
+          email,
+          password,
+          testTo: testEmail || email,
           vercelProxyUrl: window.location.origin + "/api/send"
         });
+      } else {
+        showAlert("Input Required", "Please enter SMTP credentials first.", "warning");
+        setTestSmtpLoading(false);
+        return;
       }
 
       const data = await request(url, options);
@@ -140,17 +161,27 @@ export function SettingsPage({
     }
   };
 
+  // Update sender email from session creds for client
+  useEffect(() => {
+    if (!isAdmin && sessionSmtpEmail) {
+      setSenderEmail(sessionSmtpEmail);
+    }
+  }, [sessionSmtpEmail, isAdmin, setSenderEmail]);
+
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-bold text-gray-900">SMTP Settings</h2>
         <p className="text-gray-500 text-sm mt-1">
-          Your credentials are encrypted using AES-256-GCM on the database server.
+          {isAdmin
+            ? "Your credentials are encrypted using AES-256-GCM on the database server."
+            : "Enter your SMTP credentials for this session. Credentials are not saved and must be re-entered each time."
+          }
         </p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Saved status / save form */}
+        {/* SMTP Card */}
         <Card>
           <h3 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
             <Icon name="mail" size={16} /> Gmail SMTP Authentication
@@ -160,53 +191,121 @@ export function SettingsPage({
             <div className="py-10 flex justify-center">
               <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
             </div>
-          ) : savedStatus.saved ? (
-            <div className="space-y-4 animate-fade-in">
-              <div className="p-4 bg-green-50 border border-green-200 rounded-xl flex items-center gap-3">
-                <Icon name="check" size={20} className="text-green-600 flex-shrink-0" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-green-800">SMTP Credentials Locked ✓</p>
-                  <p className="text-xs text-green-600 truncate">Sender: {savedStatus.email}</p>
+          ) : isAdmin ? (
+            /* ── ADMIN VIEW ──────────────────────────────────────────────── */
+            savedStatus.saved ? (
+              <div className="space-y-4 animate-fade-in">
+                <div className="p-4 bg-green-50 border border-green-200 rounded-xl flex items-center gap-3">
+                  <Icon name="check" size={20} className="text-green-600 flex-shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-green-800">SMTP Credentials Locked ✓</p>
+                    <p className="text-xs text-green-600 truncate">Sender: {savedStatus.email}</p>
+                  </div>
+                </div>
+                <p className="text-xs text-gray-400">
+                  Emails will be sent using the server-side stored app password. You do not need to re-enter it.
+                </p>
+                <Button onClick={handleClearSmtp} variant="danger" className="w-full justify-center text-xs py-2">
+                  Clear Saved Credentials
+                </Button>
+              </div>
+            ) : (
+              <form onSubmit={handleSaveSmtp} className="space-y-4 animate-fade-in">
+                <Input
+                  label="Gmail address"
+                  type="email"
+                  placeholder="yourname@gmail.com"
+                  value={smtpEmailInput}
+                  onChange={(e) => setSmtpEmailInput(e.target.value)}
+                  required
+                />
+                <Input
+                  label="Gmail App Password"
+                  type="password"
+                  placeholder="xxxx xxxx xxxx xxxx"
+                  value={smtpPasswordInput}
+                  onChange={(e) => setSmtpPasswordInput(e.target.value)}
+                  required
+                />
+                <div className="p-3 bg-amber-50 rounded-xl border border-amber-200">
+                  <p className="text-xs text-amber-700 font-medium mb-1">How to get an App Password:</p>
+                  <ol className="text-xs text-amber-600 space-y-0.5 list-decimal list-inside">
+                    <li>Go to Google Account → Security</li>
+                    <li>Enable 2-Step Verification</li>
+                    <li>Search "App passwords" → Create new</li>
+                    <li>Select "Mail" and copy the 16-char password</li>
+                  </ol>
+                </div>
+                <Button type="submit" loading={savingSmtp} className="w-full justify-center">
+                  Save & Encrypt Credentials
+                </Button>
+              </form>
+            )
+          ) : (
+            /* ── CLIENT VIEW ─────────────────────────────────────────────── */
+            savedStatus.saved && savedStatus.lockedByAdmin ? (
+              /* Locked by Admin — read-only */
+              <div className="space-y-4 animate-fade-in">
+                <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                    <Icon name="lock" size={16} className="text-blue-600" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-blue-800">🔒 SMTP Locked by Admin</p>
+                    <p className="text-xs text-blue-600 truncate">Sender: {savedStatus.email}</p>
+                  </div>
+                </div>
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                  <p className="text-xs text-slate-600">
+                    <span className="font-semibold">Your SMTP credentials have been configured by the administrator.</span>{" "}
+                    Emails will be sent using these locked credentials automatically. You do not need to enter anything.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 text-xs text-green-600">
+                  <Icon name="check" size={14} />
+                  <span className="font-medium">Ready to send — no action required</span>
                 </div>
               </div>
-              <p className="text-xs text-gray-400">
-                Emails will be sent using the server-side stored app password. You do not need to re-enter it.
-              </p>
-              <Button onClick={handleClearSmtp} variant="danger" className="w-full justify-center text-xs py-2">
-                Clear Saved Credentials
-              </Button>
-            </div>
-          ) : (
-            <form onSubmit={handleSaveSmtp} className="space-y-4 animate-fade-in">
-              <Input
-                label="Gmail address"
-                type="email"
-                placeholder="yourname@gmail.com"
-                value={smtpEmailInput}
-                onChange={(e) => setSmtpEmailInput(e.target.value)}
-                required
-              />
-              <Input
-                label="Gmail App Password"
-                type="password"
-                placeholder="xxxx xxxx xxxx xxxx"
-                value={smtpPasswordInput}
-                onChange={(e) => setSmtpPasswordInput(e.target.value)}
-                required
-              />
-              <div className="p-3 bg-amber-50 rounded-xl border border-amber-200">
-                <p className="text-xs text-amber-700 font-medium mb-1">How to get an App Password:</p>
-                <ol className="text-xs text-amber-600 space-y-0.5 list-decimal list-inside">
-                  <li>Go to Google Account → Security</li>
-                  <li>Enable 2-Step Verification</li>
-                  <li>Search "App passwords" → Create new</li>
-                  <li>Select "Mail" and copy the 16-char password</li>
-                </ol>
+            ) : (
+              /* Not locked — client enters session-only credentials */
+              <div className="space-y-4 animate-fade-in">
+                <div className="p-3 bg-amber-50 rounded-xl border border-amber-200">
+                  <p className="text-xs text-amber-700 flex items-center gap-1.5">
+                    <Icon name="alert" size={13} className="flex-shrink-0" />
+                    <span><strong>Session Only</strong> — Credentials are not saved. You must re-enter them each time you log in.</span>
+                  </p>
+                </div>
+                <Input
+                  label="Gmail address"
+                  type="email"
+                  placeholder="yourname@gmail.com"
+                  value={sessionSmtpEmail}
+                  onChange={(e) => setSessionSmtpEmail(e.target.value)}
+                />
+                <Input
+                  label="Gmail App Password"
+                  type="password"
+                  placeholder="xxxx xxxx xxxx xxxx"
+                  value={sessionSmtpPassword}
+                  onChange={(e) => setSessionSmtpPassword(e.target.value)}
+                />
+                <div className="p-3 bg-amber-50 rounded-xl border border-amber-200">
+                  <p className="text-xs text-amber-700 font-medium mb-1">How to get an App Password:</p>
+                  <ol className="text-xs text-amber-600 space-y-0.5 list-decimal list-inside">
+                    <li>Go to Google Account → Security</li>
+                    <li>Enable 2-Step Verification</li>
+                    <li>Search "App passwords" → Create new</li>
+                    <li>Select "Mail" and copy the 16-char password</li>
+                  </ol>
+                </div>
+                {sessionSmtpEmail && sessionSmtpPassword && (
+                  <div className="flex items-center gap-2 text-xs text-green-600 animate-fade-in">
+                    <Icon name="check" size={14} />
+                    <span className="font-medium">Credentials entered for this session</span>
+                  </div>
+                )}
               </div>
-              <Button type="submit" loading={savingSmtp} className="w-full justify-center">
-                Save & Encrypt Credentials
-              </Button>
-            </form>
+            )
           )}
         </Card>
 
@@ -264,7 +363,7 @@ export function SettingsPage({
             <Input
               label="Send test email to"
               type="email"
-              placeholder={savedStatus.saved ? savedStatus.email : smtpEmailInput || "test@example.com"}
+              placeholder={savedStatus.saved ? savedStatus.email : (isAdmin ? smtpEmailInput : sessionSmtpEmail) || "test@example.com"}
               value={testEmail}
               onChange={(e) => setTestEmail(e.target.value)}
             />
@@ -285,14 +384,34 @@ export function SettingsPage({
         )}
       </Card>
 
-      <div className="flex justify-between">
-        <Button variant="secondary" onClick={onBack}>
-          ← Back
-        </Button>
-        <Button onClick={onNext} icon={<Icon name="rocket" size={16} />}>
-          Next: Dispatch →
-        </Button>
-      </div>
+      {/* Navigation */}
+      {(() => {
+        const clientSmtpReady = isAdmin
+          || savedStatus.lockedByAdmin
+          || (sessionSmtpEmail && sessionSmtpPassword);
+        return (
+          <div className="flex justify-between items-center gap-4">
+            <Button variant="secondary" onClick={onBack}>
+              ← Back
+            </Button>
+            <div className="flex items-center gap-3">
+              {!clientSmtpReady && !isAdmin && (
+                <p className="text-xs text-amber-600 font-medium flex items-center gap-1">
+                  <Icon name="alert" size={13} className="flex-shrink-0" />
+                  Enter SMTP credentials to continue
+                </p>
+              )}
+              <Button
+                onClick={onNext}
+                disabled={!clientSmtpReady}
+                icon={<Icon name="rocket" size={16} />}
+              >
+                Next: Dispatch →
+              </Button>
+            </div>
+          </div>
+        );
+      })()}
 
       <AlertModal
         isOpen={alertState.isOpen}

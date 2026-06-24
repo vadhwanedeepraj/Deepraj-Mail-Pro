@@ -52,6 +52,47 @@ async function trackOpen(req, res, next) {
 }
 
 /**
+ * Tracks an email link click and redirects to the target URL.
+ * URL is passed via ?url= query param, encoded as base64 for safety.
+ */
+async function trackClick(req, res, next) {
+  try {
+    const { tenantId, campaignId, email } = req.params;
+    const rawUrl = req.query.url || "";
+    let targetUrl = "#";
+
+    try {
+      // URL is base64-encoded when injected into email to avoid query param conflicts
+      targetUrl = Buffer.from(rawUrl, "base64").toString("utf8");
+      // Validate the URL is http/https only (security: prevent javascript: protocol)
+      const parsed = new URL(targetUrl);
+      if (!["http:", "https:"].includes(parsed.protocol)) {
+        targetUrl = "#";
+      }
+    } catch (_) {
+      targetUrl = "#";
+    }
+
+    const cleanEmail = decodeURIComponent(email).toLowerCase().trim();
+    const userAgent = req.headers["user-agent"] || "";
+    const ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress || "";
+
+    // Log the click event — allow multiple clicks (no UNIQUE constraint on clicks)
+    pool.query(
+      `INSERT INTO tracking_events (tenant_id, campaign_id, email, event, user_agent, ip, link_url)
+       VALUES ($1, $2, $3, 'click', $4, $5, $6)`,
+      [tenantId, campaignId, cleanEmail, userAgent, ip, targetUrl]
+    ).catch(err => logger.error("Failed to log click event", { error: err.message }));
+
+    // Redirect immediately — don't wait for DB write
+    return res.redirect(302, targetUrl);
+  } catch (err) {
+    logger.error("Error in trackClick", { error: err.message });
+    return res.redirect(302, "#");
+  }
+}
+
+/**
  * Registers an unsubscribe request from a recipient.
  */
 async function unsubscribe(req, res, next) {
@@ -73,7 +114,6 @@ async function unsubscribe(req, res, next) {
     logger.info("Recipient unsubscribed from tenant mailing list", { tenantId, email });
 
     // ISSUE-10 Fix: Escape the email address to prevent reflected XSS.
-    // The raw email from the query string was previously interpolated directly into HTML.
     const safeEmail = escapeHtml(email);
 
     res.setHeader("Content-Type", "text/html; charset=utf-8");
@@ -106,53 +146,87 @@ async function unsubscribe(req, res, next) {
 }
 
 /**
- * Gets campaign analytics including open counts and open rates.
+ * Gets enhanced campaign analytics including open counts, click counts,
+ * unsubscribe counts, fail rates, and open rates.
+ * Admin can pass ?clientTenantId= to filter by a specific client.
  */
 async function getAnalytics(req, res, next) {
   try {
     const { tenantId, role } = req.user;
 
+    // Admin can filter by a specific client's tenant via ?clientTenantId=
+    const clientTenantId = (role === "admin" && req.query.clientTenantId)
+      ? req.query.clientTenantId
+      : null;
+
     let query = `
       SELECT c.id, c.subject, c.total_recipients, c.sent, c.failed, c.status, c.created_at,
-             COALESCE(t.opens, 0) as opens
+             COALESCE(opens_data.opens, 0)   AS opens,
+             COALESCE(clicks_data.clicks, 0) AS clicks,
+             COALESCE(unsub_data.unsubs, 0)  AS unsubs
       FROM campaigns c
       LEFT JOIN (
-        SELECT campaign_id, COUNT(*) as opens FROM tracking_events GROUP BY campaign_id
-      ) t ON c.id = t.campaign_id
+        SELECT campaign_id, COUNT(*) AS opens
+        FROM tracking_events WHERE event = 'open'
+        GROUP BY campaign_id
+      ) opens_data ON c.id = opens_data.campaign_id
+      LEFT JOIN (
+        SELECT campaign_id, COUNT(*) AS clicks
+        FROM tracking_events WHERE event = 'click'
+        GROUP BY campaign_id
+      ) clicks_data ON c.id = clicks_data.campaign_id
+      LEFT JOIN (
+        SELECT tenant_id, COUNT(*) AS unsubs
+        FROM unsubscribes
+        GROUP BY tenant_id
+      ) unsub_data ON c.tenant_id = unsub_data.tenant_id
     `;
     const params = [];
 
     if (role !== "admin") {
+      // Regular client: always filter by own tenant
       query += " WHERE c.tenant_id = $1";
       params.push(tenantId);
+    } else if (clientTenantId) {
+      // Admin viewing a specific client's data
+      query += " WHERE c.tenant_id = $1";
+      params.push(clientTenantId);
     }
+    // else: admin with no filter → sees all campaigns
 
     query += " ORDER BY c.created_at DESC";
 
     const { rows: campaigns } = await pool.query(query, params);
 
     const analytics = campaigns.map(c => {
-      const totalSent = parseInt(c.sent, 10);
-      const totalOpens = parseInt(c.opens, 10);
-      const openRate = totalSent > 0 ? Math.round((totalOpens / totalSent) * 100) : 0;
-      
+      const totalSent   = parseInt(c.sent, 10);
+      const totalFailed = parseInt(c.failed, 10);
+      const totalOpens  = parseInt(c.opens, 10);
+      const totalClicks = parseInt(c.clicks, 10);
+      const totalUnsubs = parseInt(c.unsubs, 10);
+      const openRate    = totalSent > 0 ? Math.round((totalOpens  / totalSent) * 100) : 0;
+      const clickRate   = totalSent > 0 ? Math.round((totalClicks / totalSent) * 100) : 0;
+      const failRate    = (totalSent + totalFailed) > 0
+        ? Math.round((totalFailed / (totalSent + totalFailed)) * 100) : 0;
+
       return {
         id: c.id,
         subject: c.subject,
         date: c.created_at,
         totalRecipients: c.total_recipients,
         sent: totalSent,
-        failed: parseInt(c.failed, 10),
+        failed: totalFailed,
         status: c.status,
         opens: totalOpens,
-        openRate: openRate
+        clicks: totalClicks,
+        unsubs: totalUnsubs,
+        openRate,
+        clickRate,
+        failRate
       };
     });
 
-    return res.json({
-      success: true,
-      analytics
-    });
+    return res.json({ success: true, analytics });
   } catch (err) {
     next(err);
   }
@@ -160,6 +234,7 @@ async function getAnalytics(req, res, next) {
 
 module.exports = {
   trackOpen,
+  trackClick,
   unsubscribe,
   getAnalytics
 };

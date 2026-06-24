@@ -7,6 +7,8 @@ const { pool } = require("../config/db");
 const logger = require("../utils/logger");
 const { getQueue, queueEvents } = require("../../queue");
 const campaignRunner = require("../services/campaignRunner");
+const { sendEmailWithBypass } = require("../services/emailService");
+const { decrypt } = require("../services/encryptionService");
 
 const ATTACHMENTS_DIR = path.join(__dirname, "..", "..", "attachments");
 
@@ -191,22 +193,28 @@ async function sendBulk(req, res, next) {
 
 /**
  * Gets paginated, searchable campaign history for a user.
+ * Admin can pass ?clientTenantId= to filter by a specific client's tenant.
  */
 async function getCampaigns(req, res, next) {
   try {
-    const { tenantId } = req.user;
+    const { tenantId, role } = req.user;
     const page = parseInt(req.query.page, 10) || 1;
     const limit = parseInt(req.query.limit, 10) || 10;
     const offset = (page - 1) * limit;
     const search = req.query.search || "";
     const sortOrder = req.query.sortOrder === "asc" ? "ASC" : "DESC";
 
+    // Admin can view a specific client's campaigns via ?clientTenantId=
+    const effectiveTenantId = (role === "admin" && req.query.clientTenantId)
+      ? req.query.clientTenantId
+      : tenantId;
+
     let query = `
-      SELECT id, subject, total_recipients, sent, failed, status, created_at
+      SELECT id, subject, total_recipients, sent, failed, status, created_at, label, label_color
       FROM campaigns
       WHERE tenant_id = $1
     `;
-    const params = [tenantId];
+    const params = [effectiveTenantId];
 
     if (search) {
       query += ` AND subject ILIKE $2`;
@@ -215,7 +223,7 @@ async function getCampaigns(req, res, next) {
 
     // Get count
     let countQuery = `SELECT COUNT(*) FROM campaigns WHERE tenant_id = $1`;
-    const countParams = [tenantId];
+    const countParams = [effectiveTenantId];
     if (search) {
       countQuery += ` AND subject ILIKE $2`;
       countParams.push(`%${search}%`);
@@ -311,8 +319,106 @@ async function cancel(req, res, next) {
 
 module.exports = {
   sendBulk,
+  sendTest,
   getCampaigns,
   getCampaignDetails,
+  duplicateCampaign,
+  updateCampaignLabel,
   getActive,
   cancel
 };
+
+/**
+ * Sends a single test email to the logged-in user's own email address.
+ * Uses the user's configured SMTP credentials. No DB record is created.
+ */
+async function sendTest(req, res, next) {
+  try {
+    const { tenantId } = req.user;
+    const { subject, body } = req.body;
+
+    if (!subject || !body) {
+      return res.status(400).json({ success: false, message: "subject and body are required" });
+    }
+
+    // Fetch SMTP credentials for this tenant
+    const { rows: smtpRows } = await pool.query(
+      "SELECT smtp_email, encrypted_pass, iv, auth_tag FROM smtp_credentials WHERE tenant_id = $1 LIMIT 1",
+      [tenantId]
+    );
+    if (smtpRows.length === 0) {
+      return res.status(400).json({ success: false, message: "No SMTP credentials configured. Set them up in Settings first." });
+    }
+
+    const { smtp_email, encrypted_pass, iv, auth_tag } = smtpRows[0];
+    const decryptedPassword = decrypt(encrypted_pass, iv, auth_tag);
+
+    await sendEmailWithBypass({
+      vercelProxyUrl: process.env.VERCEL_PROXY_URL || "https://email-proxy-one.vercel.app/api/send",
+      email: smtp_email,
+      password: decryptedPassword,
+      to: smtp_email, // Send to self
+      subject: `[TEST] ${subject}`,
+      html: `<div style="font-family:sans-serif;line-height:1.6">${body}</div>`,
+      text: body.replace(/<[^>]*>?/gm, ""),
+      verifyOnly: false
+    });
+
+    logger.info("Test email sent successfully", { tenantId, smtp_email });
+    return res.json({ success: true, message: `Test email sent to ${smtp_email}` });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * Returns the stored body and subject of a campaign for duplication/pre-fill.
+ */
+async function duplicateCampaign(req, res, next) {
+  try {
+    const { id } = req.params;
+    const { tenantId, role } = req.user;
+
+    const query = role === "admin"
+      ? "SELECT id, subject, body_with, body_without, label, label_color FROM campaigns WHERE id = $1 LIMIT 1"
+      : "SELECT id, subject, body_with, body_without, label, label_color FROM campaigns WHERE id = $1 AND tenant_id = $2 LIMIT 1";
+    const params = role === "admin" ? [id] : [id, tenantId];
+
+    const { rows } = await pool.query(query, params);
+    if (rows.length === 0) {
+      return res.status(404).json({ success: false, message: "Campaign not found" });
+    }
+
+    return res.json({ success: true, campaign: rows[0] });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * Updates the label and label_color of a campaign.
+ */
+async function updateCampaignLabel(req, res, next) {
+  try {
+    const { id } = req.params;
+    const { tenantId } = req.user;
+    const { label, labelColor } = req.body;
+
+    const { rows } = await pool.query(
+      `UPDATE campaigns SET label = $1, label_color = $2
+       WHERE id = $3 AND tenant_id = $4
+       RETURNING id, label, label_color`,
+      [label || null, labelColor || "blue", id, tenantId]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ success: false, message: "Campaign not found" });
+    }
+
+    logger.info("Campaign label updated", { campaignId: id, label, labelColor });
+    return res.json({ success: true, campaign: rows[0] });
+  } catch (err) {
+    next(err);
+  }
+}
+
