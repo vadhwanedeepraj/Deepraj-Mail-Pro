@@ -127,10 +127,28 @@ async function sendBulk(req, res, next) {
 
     // 3. Schedule Campaign vs Dispatch Campaign
     if (scheduleTime) {
+      // ISSUE-04 Fix: Session-only SMTP credentials cannot be persisted in the DB.
+      // If a client tries to schedule a campaign using session creds (not admin-saved),
+      // the password would be stored plain-text in scheduled_jobs.payload — a security risk.
+      // Reject the request with a clear explanation instead.
+      if (payload.sessionSmtpPassword) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Scheduled campaigns require saved SMTP credentials. " +
+            "Session-only credentials (entered per-session) cannot be stored for scheduled delivery. " +
+            "Please ask your administrator to lock SMTP credentials for your account, then retry.",
+        });
+      }
+
+      // Safety net: always strip session credential fields before DB insert
+      // in case the check above is ever bypassed by future code changes.
+      const { sessionSmtpEmail: _e, sessionSmtpPassword: _p, ...safePayload } = payload;
+
       await pool.query(
         `INSERT INTO scheduled_jobs (tenant_id, schedule_time, status, payload)
          VALUES ($1, $2, 'pending', $3)`,
-        [tenantId, scheduleTime, payload]
+        [tenantId, scheduleTime, safePayload]
       );
       logger.info("Campaign scheduled successfully", { campaignId, tenantId, scheduleTime });
       return res.json({ success: true, message: "Campaign scheduled", scheduled: true });

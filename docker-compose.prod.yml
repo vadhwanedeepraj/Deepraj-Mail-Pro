@@ -1,0 +1,131 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Deepraj Mail Pro — Docker Compose (PRODUCTION)
+#
+# Usage:
+#   # Copy and fill in secrets first:
+#   cp backend/.env.production.example .env.prod
+#   nano .env.prod
+#
+#   # Start the production stack:
+#   docker-compose -f docker-compose.prod.yml up -d
+#
+#   # View logs:
+#   docker-compose -f docker-compose.prod.yml logs -f app
+#
+#   # Stop and remove containers (data volumes are preserved):
+#   docker-compose -f docker-compose.prod.yml down
+#
+# ⚠️  SECURITY NOTES:
+#   - Never commit .env.prod to version control
+#   - ENCRYPTION_KEY must NEVER change after first deploy
+#   - Rotate JWT_SECRET to invalidate all existing sessions
+# ─────────────────────────────────────────────────────────────────────────────
+
+version: '3.8'
+
+networks:
+  edp_prod_network:
+    driver: bridge
+
+volumes:
+  pgdata_prod:
+  redisdata_prod:
+  attachments_prod:
+
+services:
+
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
+  db:
+    image: postgres:15-alpine
+    container_name: edp_postgres_prod
+    env_file: .env.prod
+    environment:
+      POSTGRES_USER:     ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB:       ${POSTGRES_DB:-email_dispatcher}
+    expose:
+      - "5432"                   # Internal only — not exposed to host
+    volumes:
+      - pgdata_prod:/var/lib/postgresql/data
+    networks:
+      - edp_prod_network
+    healthcheck:
+      test:     ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-email_dispatcher}"]
+      interval: 15s
+      timeout:  10s
+      retries:  5
+      start_period: 30s
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus:   "0.5"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  # ── Redis ───────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: edp_redis_prod
+    command: redis-server --save 60 1 --loglevel warning --requirepass ${REDIS_PASSWORD}
+    expose:
+      - "6379"                   # Internal only
+    volumes:
+      - redisdata_prod:/data
+    networks:
+      - edp_prod_network
+    healthcheck:
+      test:     ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 15s
+      timeout:  10s
+      retries:  5
+      start_period: 15s
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+          cpus:   "0.25"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ── Application ─────────────────────────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    image: deepraj-mail-pro:latest
+    container_name: edp_app_prod
+    env_file: .env.prod
+    ports:
+      - "${PORT:-3001}:${PORT:-3001}"
+    environment:
+      NODE_ENV: production
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - attachments_prod:/app/attachments
+    networks:
+      - edp_prod_network
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus:   "1.0"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "10"

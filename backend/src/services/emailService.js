@@ -90,12 +90,25 @@ async function sendEmailWithBypass({
       return json;
     } else {
       logger.info("Sending email directly from backend server", { to });
-      const transporter = nodemailer.createTransport({
-        service: "gmail",
-        auth: { user: email, pass: password },
-        pool: true,
-        maxConnections: 1
-      });
+
+      // ISSUE-01 Fix: Build transport config dynamically.
+      // If SMTP_HOST is set in env, use a custom SMTP host (works with Outlook, Yahoo, etc.).
+      // Otherwise default to service:"gmail" for backward compatibility.
+      const transportConfig = process.env.SMTP_HOST
+        ? {
+            host:   process.env.SMTP_HOST,
+            port:   parseInt(process.env.SMTP_PORT || "587", 10),
+            secure: process.env.SMTP_SECURE === "true", // true for port 465, false for 587
+            auth:   { user: email, pass: password },
+          }
+        : {
+            service: "gmail",
+            auth: { user: email, pass: password },
+            pool: true,
+            maxConnections: 1,
+          };
+
+      const transporter = nodemailer.createTransport(transportConfig);
 
       if (verifyOnly) {
         await transporter.verify();

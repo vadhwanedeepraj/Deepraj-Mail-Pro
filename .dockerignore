@@ -1,0 +1,55 @@
+# ── Git ───────────────────────────────────────────────────────────────────────
+.git
+.gitignore
+.gitattributes
+.github
+
+# ── Node modules (re-installed inside container) ──────────────────────────────
+node_modules
+backend/node_modules
+frontend/node_modules
+
+# ── Environment files (NEVER bake secrets into image layers) ─────────────────
+.env
+.env.*
+backend/.env
+backend/.env.*
+frontend/.env
+frontend/.env.*
+!backend/.env.example
+!backend/.env.production.example
+!frontend/.env.example
+
+# ── Frontend (served separately via Vercel or as a pre-built static bundle) ──
+frontend/src
+frontend/public
+frontend/node_modules
+
+# ── Development & local tooling ───────────────────────────────────────────────
+.vscode
+*.bat
+run-local.bat
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+backend/logs
+*.log
+npm-debug.log*
+
+# ── Persistent data (mounted as Docker volumes) ───────────────────────────────
+backend/attachments
+
+# ── Dead / legacy files ───────────────────────────────────────────────────────
+backend/scheduled.json
+backend/campaigns.json
+Deepraj\ Logo.png
+
+# ── Docker artifacts ──────────────────────────────────────────────────────────
+Dockerfile
+docker-compose*.yml
+.dockerignore
+
+# ── CI / deployment configs (not needed inside image) ────────────────────────
+render.yaml
+vercel.json
+README.md
+DEPLOYMENT.md

@@ -3,6 +3,8 @@
   "version": "1.0.0",
   "private": true,
   "dependencies": {
+    "ajv": "^6.15.0",
+    "ajv-keywords": "^3.5.2",
     "lucide-react": "^0.383.0",
     "papaparse": "^5.4.1",
     "react": "^18.2.0",

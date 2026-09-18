@@ -1,6 +1,82 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Deepraj Mail Pro — Docker Compose (Local Development)
+#
+# Starts the full stack: PostgreSQL + Redis + Backend API
+#
+# Usage:
+#   docker-compose up          (foreground, ctrl+c to stop)
+#   docker-compose up -d       (background)
+#   docker-compose down -v     (stop and delete volumes — full reset)
+#
+# ⚠️  This file is for LOCAL DEVELOPMENT only.
+#     For production, use docker-compose.prod.yml instead.
+# ─────────────────────────────────────────────────────────────────────────────
+
 version: '3.8'
 
+networks:
+  edp_network:
+    driver: bridge
+
+volumes:
+  pgdata:
+  redisdata:
+  attachments_data:
+
 services:
+
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
+  db:
+    image: postgres:15-alpine
+    container_name: edp_postgres
+    environment:
+      POSTGRES_USER:     postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB:       email_dispatcher
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - edp_network
+    healthcheck:
+      test:     ["CMD-SHELL", "pg_isready -U postgres -d email_dispatcher"]
+      interval: 10s
+      timeout:  5s
+      retries:  5
+      start_period: 20s
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ── Redis ───────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: edp_redis
+    command: redis-server --save 60 1 --loglevel warning
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    networks:
+      - edp_network
+    healthcheck:
+      test:     ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout:  5s
+      retries:  5
+      start_period: 10s
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+  # ── Application ─────────────────────────────────────────────────────────────
   app:
     build:
       context: .
@@ -9,47 +85,31 @@ services:
     ports:
       - "3001:3001"
     environment:
-      PORT: "3001"
-      NODE_ENV: development
-      DATABASE_URL: "postgresql://postgres:password@db:5432/email_dispatcher"
-      REDIS_URL: "redis://redis:6379"
-      JWT_SECRET: "local-dev-changeme-64chars-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-      ENCRYPTION_KEY: "local-dev-changeme-32chars123456"
-      ADMIN_EMAIL: "admin@example.com"
-      ADMIN_PASSWORD: "admin123456"
-      CORS_ORIGINS: "http://localhost:3000"
-      BACKEND_URL: "http://localhost:3001"
+      PORT:                 "3001"
+      NODE_ENV:             development
+      DATABASE_URL:         "postgresql://postgres:password@db:5432/email_dispatcher"
+      REDIS_URL:            "redis://redis:6379"
+      # ⚠️  Change ALL secrets below before using in any real environment!
+      JWT_SECRET:           "local-dev-changeme-must-be-at-least-64-chars-xxxxxxxxxxxxxxxxxxxxx"
+      ENCRYPTION_KEY:       "local-dev-changeme-must-be-32ch"
+      ADMIN_EMAIL:          "admin@example.com"
+      ADMIN_PASSWORD:       "admin123456"
+      CORS_ORIGINS:         "http://localhost:3000"
+      BACKEND_URL:          "http://localhost:3001"
+      BYPASS_PROXY_LOCALLY: "true"
+      LOG_LEVEL:            "debug"
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - attachments_data:/app/attachments
+    networks:
+      - edp_network
     restart: unless-stopped
-    volumes:
-      # Persist attachments between restarts
-      - attachments_data:/app/backend/attachments
-
-  db:
-    image: postgres:15-alpine
-    container_name: edp_postgres
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: email_dispatcher
-    ports:
-      - "5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    restart: unless-stopped
-
-  redis:
-    image: redis:7-alpine
-    container_name: edp_redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redisdata:/data
-    restart: always
-
-volumes:
-  pgdata:
-  redisdata:
-  attachments_data:
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
